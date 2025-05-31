@@ -1,0 +1,8 @@
+fastapi==0.110.0
+uvicorn[standard]==0.29.0  # ASGI server
+nba_api==1.2.1             # For accessing NBA stats
+pandas==2.2.2              # Data manipulation
+python-multipart==0.0.9    # Needed if you later handle file uploads
+httpx==0.27.0              # Optional, used if you want async HTTP requests
+# Optional dependencies for additional features
+sqlalchemy==2.0.20        # For database interactions
