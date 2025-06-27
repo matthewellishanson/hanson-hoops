@@ -4,7 +4,7 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white shadow p-4">
-        <h1 className="text-xl font-bold">🏀 NBA Data Blog</h1>
+        <h1 className="text-xl font-bold">🏀 Hanson Hoops</h1>
       </header>
 
       <main className="p-6 max-w-6xl mx-auto">

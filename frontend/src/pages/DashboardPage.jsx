@@ -6,7 +6,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Site header / nav could go here */}
       <header className="bg-white shadow p-4 mb-6">
-        <h1 className="text-2xl font-semibold text-center">🏀 NBA Data Blog</h1>
+        <h1 className="text-2xl font-semibold text-center">🏀 Hanson Hoops</h1>
       </header>
 
       <main>
