@@ -18,9 +18,9 @@ function App() {
       </div>
       <h1>Vite + React</h1>
       
-    <div className="p-10">
-      <h1 className="text-6xl text-red-600 font-extrabold underline bg-yellow-200 p-4">
-        Tailwind is Working!
+    <div className="min-h-screen bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
+      <h1 className="text-white text-5xl font-extrabold underline">
+        Tailwind Is Working!
       </h1>
     </div>
 
