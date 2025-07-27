@@ -14,3 +14,7 @@ class PlayerProfileStats(BaseModel):
 class GameStat(BaseModel):
     game_date: str
     points: int
+
+class Player(BaseModel):
+    id: str
+    name: str
