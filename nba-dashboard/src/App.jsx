@@ -17,14 +17,12 @@ function App() {
         </a>
       </div>
       <h1>Vite + React</h1>
-      
-    <div className="min-h-screen bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
-      <h1 className="text-white text-5xl font-extrabold underline">
-        Tailwind Is Working!
+      <div className="min-h-screen bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
+      <h1 className="text-5xl text-white font-bold underline">
+        Tailwind is Working!
       </h1>
     </div>
-
-      <div className="card">
+    <div className="card">
         <button onClick={() => setCount((count) => count + 1)}>
           count is {count}
         </button>
