@@ -1,9 +1,8 @@
 export default function App() {
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center">
-      <h1 className="text-6xl font-bold text-red-500 underline">
-        TAILWIND IS ALIVE
-      </h1>
+    <div style={{ padding: '2rem' }}>
+      <h1>NBA Dashboard MVP</h1>
+      <p>This version is using plain CSS to get up and running quickly.</p>
     </div>
   );
 }
