@@ -14,3 +14,8 @@ app.add_middleware(
 
 app.include_router(players.router)
 app.include_router(stats.router)
+
+@app.get("/")
+def read_root():
+    return {"message": "NBA Data API is running!"}
+
