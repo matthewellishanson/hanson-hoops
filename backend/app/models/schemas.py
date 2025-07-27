@@ -10,3 +10,7 @@ class PlayerProfileStats(BaseModel):
     steals: float
     fg_pct: float
     fg3_pct: float
+
+class GameStat(BaseModel):
+    game_date: str
+    points: int
