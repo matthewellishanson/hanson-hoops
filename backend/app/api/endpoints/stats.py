@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query
-from app.models.schemas import PlayerProfileStats, GameStat
+from models.schemas import PlayerProfileStats, GameStat
 from nba_api.stats.endpoints import playergamelog
 
 router = APIRouter()
