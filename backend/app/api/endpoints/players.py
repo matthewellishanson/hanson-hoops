@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.models.schemas import Player
+from models.schemas import Player
 from nba_api.stats.endpoints import commonallplayers
 
 router = APIRouter()
