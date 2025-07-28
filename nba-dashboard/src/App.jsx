@@ -1,5 +1,5 @@
 import React from 'react';
-import PlayerRadarChart from './PlayerRadarChart';
+import PlayerRadarChart from './components/PlayerRadarChart';
 
 function App() {
   return (
