@@ -1,8 +1,14 @@
-export default function App() {
+import React from 'react';
+import PlayerRadarChart from './PlayerRadarChart';
+
+function App() {
   return (
-    <div style={{ padding: '2rem' }}>
-      <h1>NBA Dashboard MVP</h1>
-      <p>This version is using plain CSS to get up and running quickly.</p>
+    <div>
+      <h1>Player Profile Radar Chart</h1>
+      <PlayerRadarChart playerId="2544" season="2023" />
     </div>
   );
 }
+
+export default App;
+
