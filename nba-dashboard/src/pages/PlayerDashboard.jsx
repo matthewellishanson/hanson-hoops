@@ -28,12 +28,12 @@ export default function PlayerDashboard() {
       {/* Add Player Column */}
       <div 
         onClick={() => setShowSelector(true)} 
-        className="flex items-center justify-center border p-4 rounded shadow w-[400px] cursor-pointer hover:bg-gray-100"
+        className="flex items-center justify-center border-2 border-green-500 bg-gray-50 p-4 rounded shadow w-[400px] h-[400px] cursor-pointer hover:bg-green-100"
       >
         {showSelector ? (
           <PlayerSelector onSelect={addPlayer} />
         ) : (
-          <span className="text-2xl">➕ Add Player</span>
+        <span className="text-2xl font-bold text-green-600">➕ Add Player</span>
         )}
       </div>
     </div>
