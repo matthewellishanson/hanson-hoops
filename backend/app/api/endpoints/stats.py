@@ -17,6 +17,9 @@ def get_player_profile_stats(player_id: str = Query(...), season: str = Query(..
     relevant_columns = ['PTS', 'REB', 'AST', 'BLK', 'STL', 'FG_PCT', 'FG3_PCT']
     averages = logs[relevant_columns].mean()
 
+    # Replace NaNs with 0
+    averages = averages.fillna(0)
+
     return PlayerProfileStats(
         points=round(averages['PTS'], 1),
         rebounds=round(averages['REB'], 1),
