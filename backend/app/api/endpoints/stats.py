@@ -1,24 +1,37 @@
 from fastapi import APIRouter, Query
 from models.schemas import PlayerProfileStats, GameStat
 from nba_api.stats.endpoints import playergamelog
+from utils.seasons import format_season
 
 router = APIRouter()
 
 @router.get("/player_stats", response_model=list[GameStat])
 def get_player_stats(player_id: str = Query(...), season: str = Query(...)):
-    logs = playergamelog.PlayerGameLog(player_id=player_id, season=season).get_data_frames()[0]
+    # Format season here
+    formatted_season = format_season(season)
+    # Fetch player game logs for the specified season
+    logs = playergamelog.PlayerGameLog(player_id=player_id, season=formatted_season).get_data_frames()[0]
     stats = logs[["GAME_DATE", "PTS"]].sort_values("GAME_DATE")
-    return [GameStat(game_date=row["GAME_DATE"], points=int(row["PTS"])) for _, row in stats.iterrows()]
+    # Convert to list of GameStat objects
+    return [
+        GameStat(game_date=row["GAME_DATE"], points=int(row["PTS"])) 
+        for _, row in stats.iterrows()
+    ]
+
+# Player Profile Stats
 
 @router.get("/player_profile_stats", response_model=PlayerProfileStats)
 def get_player_profile_stats(player_id: str = Query(...), season: str = Query(...)):
-    logs = playergamelog.PlayerGameLog(player_id=player_id, season=season).get_data_frames()[0]
+    """Fetches player profile stats for a given player and season."""
+    
+    # Format season here
+    formatted_season = format_season(season)
 
+    logs = playergamelog.PlayerGameLog(player_id=player_id, season=formatted_season).get_data_frames()[0]
+    
+    # Calculate averages for relevant stats
     relevant_columns = ['PTS', 'REB', 'AST', 'BLK', 'STL', 'FG_PCT', 'FG3_PCT']
-    averages = logs[relevant_columns].mean()
-
-    # Replace NaNs with 0
-    averages = averages.fillna(0)
+    averages = logs[relevant_columns].mean().fillna(0)
 
     return PlayerProfileStats(
         points=round(averages['PTS'], 1),
@@ -29,4 +42,5 @@ def get_player_profile_stats(player_id: str = Query(...), season: str = Query(..
         fg_pct=round(averages['FG_PCT'] * 100, 1),
         fg3_pct=round(averages['FG3_PCT'] * 100, 1)
     )
+
 

@@ -5,7 +5,7 @@ import PlayerSelector from '../components/PlayerSelector';
 
 export default function PlayerDashboard() {
   const [selectedPlayers, setSelectedPlayers] = useState([
-    { playerId: '2544', playerName: 'LeBron James', season: '2023' }, // Default player
+    { playerId: '2544', playerName: 'LeBron James', season: '2023-24' }, // Default player
   ]);
   const [showSelector, setShowSelector] = useState(false);
 
