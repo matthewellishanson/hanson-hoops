@@ -22,6 +22,18 @@ function PlayerRadarChart({ playerId, season }) {
 
   if (!stats) return <p>Loading chart...</p>;
 
+  // Handle case where stats might be empty or zero
+  if (
+    stats.points === 0 &&
+    stats.rebounds === 0 &&
+    stats.assists === 0 &&
+    stats.blocks === 0 &&
+    stats.steals === 0
+  ) {
+  return <div>No data available for this player in {season}</div>;
+}
+
+
   const values = [
     stats.points,
     stats.rebounds,

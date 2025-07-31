@@ -1,41 +1,73 @@
-// src/pages/PlayerDashboard.jsx
 import React, { useState } from 'react';
 import PlayerCard from '../components/PlayerCard';
 import PlayerSelector from '../components/PlayerSelector';
+// import PlayerDashboard.css'; // Assuming you have a CSS file for styles
+import '../PlayerDashboard.css'; // Adjust the path as necessary
 
 export default function PlayerDashboard() {
   const [selectedPlayers, setSelectedPlayers] = useState([
-    { playerId: '2544', playerName: 'LeBron James', season: '2023-24' }, // Default player
+    { playerId: '2544', playerName: 'LeBron James', season: '2023-24' },
   ]);
-  const [showSelector, setShowSelector] = useState(false);
+  const [showSelectorIndex, setShowSelectorIndex] = useState(null);
+
+  const updatePlayer = (index, newPlayer) => {
+    const updatedPlayers = [...selectedPlayers];
+    updatedPlayers[index] = newPlayer;
+    setSelectedPlayers(updatedPlayers);
+    setShowSelectorIndex(null);
+  };
 
   const addPlayer = (player) => {
-    setSelectedPlayers([...selectedPlayers, player]);
-    setShowSelector(false);
+    if (selectedPlayers.length < 4) {
+      setSelectedPlayers([...selectedPlayers, player]);
+      setShowSelectorIndex(null);
+    }
+  };
+
+  const removePlayer = (index) => {
+    const updatedPlayers = selectedPlayers.filter((_, i) => i !== index);
+    setSelectedPlayers(updatedPlayers);
   };
 
   return (
-    <div className="flex gap-4 p-4">
+    <div className={`player-dashboard ${selectedPlayers.length > 2 ? 'grid-2x2' : 'grid-1x2'}`}>
+      
       {selectedPlayers.map((p, idx) => (
-        <PlayerCard 
-          key={idx} 
-          playerId={p.playerId} 
-          playerName={p.playerName} 
-          season={p.season} 
-        />
+        <div key={idx} className="player-card-container">
+          {selectedPlayers.length > 1 && (
+            <button 
+              onClick={() => removePlayer(idx)}
+              className="remove-btn"
+            >
+              ✕
+            </button>
+          )}
+
+          {showSelectorIndex === idx ? (
+            <PlayerSelector onSelect={(player) => updatePlayer(idx, player)} />
+          ) : (
+            <PlayerCard 
+              playerId={p.playerId} 
+              playerName={p.playerName} 
+              season={p.season} 
+              onReplace={() => setShowSelectorIndex(idx)}
+            />
+          )}
+        </div>
       ))}
 
-      {/* Add Player Column */}
-      <div 
-        onClick={() => setShowSelector(true)} 
-        className="flex items-center justify-center border-2 border-green-500 bg-gray-50 p-4 rounded shadow w-[400px] h-[400px] cursor-pointer hover:bg-green-100"
-      >
-        {showSelector ? (
-          <PlayerSelector onSelect={addPlayer} />
-        ) : (
-        <span className="text-2xl font-bold text-green-600">➕ Add Player</span>
-        )}
-      </div>
+      {selectedPlayers.length < 4 && (
+        <div 
+          onClick={() => setShowSelectorIndex(selectedPlayers.length)} 
+          className="add-player-card"
+        >
+          {showSelectorIndex === selectedPlayers.length ? (
+            <PlayerSelector onSelect={addPlayer} />
+          ) : (
+            <span>➕ Add Player</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

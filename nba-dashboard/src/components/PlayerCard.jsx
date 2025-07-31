@@ -1,13 +1,19 @@
-// src/components/PlayerCard.jsx
 import React from 'react';
-import PlayerRadarChart from './PlayerRadarChart';
+import PlayerRadarChart from './PlayerRadarChart'; // Assuming you have this component
 
-export default function PlayerCard({ playerId, playerName, season }) {
+export default function PlayerCard({ playerId, playerName, season, onReplace }) {
   return (
-    <div className="border-2 border-blue-500 bg-gray-100 p-4 rounded shadow w-[400px] min-h-[400px]">
-      <h2 className="text-xl font-bold mb-2">{playerName}</h2>
+    <div className="border p-4 rounded shadow w-full min-h-[300px] flex flex-col">
+      <div className="flex justify-between mb-2">
+        <h2 className="text-xl font-bold">{playerName}</h2>
+        <button 
+          onClick={onReplace} 
+          className="text-blue-500 text-sm hover:underline"
+        >
+          Replace
+        </button>
+      </div>
       <PlayerRadarChart playerId={playerId} season={season} />
     </div>
   );
 }
-

@@ -22,12 +22,15 @@ def get_player_stats(player_id: str = Query(...), season: str = Query(...)):
 
 @router.get("/player_profile_stats", response_model=PlayerProfileStats)
 def get_player_profile_stats(player_id: str = Query(...), season: str = Query(...)):
-    """Fetches player profile stats for a given player and season."""
-    
-    # Format season here
     formatted_season = format_season(season)
-
     logs = playergamelog.PlayerGameLog(player_id=player_id, season=formatted_season).get_data_frames()[0]
+
+    if logs.empty:
+        return PlayerProfileStats(
+            points=0, rebounds=0, assists=0,
+            blocks=0, steals=0, fg_pct=0, fg3_pct=0
+        )
+
     
     # Calculate averages for relevant stats
     relevant_columns = ['PTS', 'REB', 'AST', 'BLK', 'STL', 'FG_PCT', 'FG3_PCT']
@@ -44,3 +47,11 @@ def get_player_profile_stats(player_id: str = Query(...), season: str = Query(..
     )
 
 
+# @router.get("/team_profile_stats")
+# def get_team_profile_stats(team_id: str = Query(...), season: str = Query(...)):
+#     formatted_season = format_season(season)
+    
+#     logs = teamgamelog.TeamGameLog(team_id=team_id, season=formatted_season).get_data_frames()[0]
+    
+#     # For now, just return the first few games so we can confirm it works
+#     return logs.head().to_dict(orient="records")
