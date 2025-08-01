@@ -1,7 +1,7 @@
 # hanson-hoops
 Starting an NBA blog centered around a real-time data dashboard with client-side interactivity and data visuals. Will pair in the future with data-rich and interactive posts, but this is just the repo for the central dashboard that will serve as the homepage.
 
-# 🏀 Hanson Hoops App — Checkpoint Summary
+# Hanson Hoops App — Checkpoint Summary
 
 ## **1️⃣ Project Structure**
 ### **Backend**
@@ -29,12 +29,12 @@ Starting an NBA blog centered around a real-time data dashboard with client-side
 ---
 
 ## **2️⃣ Current Status**
-✅ **Backend**
+**Backend**
 - `/player_profile_stats` fetches averages for valid `player_id` + `season`  
 - Normalization prevents FG% and 3P% from dwarfing other stats  
 - Season formatting works
 
-✅ **Frontend**
+**Frontend**
 - Default card loads radar chart for LeBron (scaling/tooltips still need adjustment)  
 - Adding players works (up to limit)  
 - Grid layout partially responsive
