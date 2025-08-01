@@ -2,14 +2,26 @@
   display: grid;
   gap: 16px;
   padding: 16px;
-}
-
-.grid-1x2 {
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  justify-items: center;    /* ✅ Center cards in grid cells */
 }
 
 .grid-2x2 {
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, 1fr);  /* ✅ Two cards per row */
+}
+
+.add-player-card {
+  border: 2px dashed green;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  min-width: 250px;
+  cursor: pointer;
+  background: #f9f9f9;
+}
+.grid-1x2 {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 }
 
 .player-card-container {
@@ -29,14 +41,4 @@
   color: red;
   font-weight: bold;
   cursor: pointer;
-}
-
-.add-player-card {
-  border: 2px dashed green;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
-  cursor: pointer;
-  background: #f9f9f9;
 }

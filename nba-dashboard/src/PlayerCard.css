@@ -1,0 +1,7 @@
+.player-card-container {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  height: 350px;         /* Fixed height for uniform cards */
+  overflow: hidden;      /* Prevent chart overflow */
+}

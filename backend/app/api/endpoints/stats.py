@@ -22,29 +22,43 @@ def get_player_stats(player_id: str = Query(...), season: str = Query(...)):
 
 @router.get("/player_profile_stats", response_model=PlayerProfileStats)
 def get_player_profile_stats(player_id: str = Query(...), season: str = Query(...)):
-    formatted_season = format_season(season)
-    logs = playergamelog.PlayerGameLog(player_id=player_id, season=formatted_season).get_data_frames()[0]
+    try:
+        formatted_season = format_season(season)
+        print(f"DEBUG: Formatted season -> {formatted_season}")
 
-    if logs.empty:
+        print(f"DEBUG: Calling PlayerGameLog for player_id={player_id}")
+        logs = playergamelog.PlayerGameLog(
+            player_id=player_id,
+            season=formatted_season,
+            season_type_all_star="Regular Season"
+        ).get_data_frames()[0]
+        print(f"DEBUG: Successfully retrieved logs")
+
+        print(f"DEBUG: DataFrame shape={logs.shape}")
+        if logs.empty:
+            print("DEBUG: No games found")
+            return PlayerProfileStats(points=0, rebounds=0, assists=0, blocks=0, steals=0, fg_pct=0, fg3_pct=0)
+
+        relevant_columns = ['PTS', 'REB', 'AST', 'BLK', 'STL', 'FG_PCT', 'FG3_PCT']
+        averages = logs[relevant_columns].mean().fillna(0)
+        print("DEBUG: Averages calculated ->", averages.to_dict())
+
+
         return PlayerProfileStats(
-            points=0, rebounds=0, assists=0,
-            blocks=0, steals=0, fg_pct=0, fg3_pct=0
+            points=round(averages['PTS'], 1),
+            rebounds=round(averages['REB'], 1),
+            assists=round(averages['AST'], 1),
+            blocks=round(averages['BLK'], 1),
+            steals=round(averages['STL'], 1),
+            fg_pct=round(averages['FG_PCT'] * 100, 1),
+            fg3_pct=round(averages['FG3_PCT'] * 100, 1)
         )
 
-    
-    # Calculate averages for relevant stats
-    relevant_columns = ['PTS', 'REB', 'AST', 'BLK', 'STL', 'FG_PCT', 'FG3_PCT']
-    averages = logs[relevant_columns].mean().fillna(0)
+    except Exception as e:
+        print(f"ERROR in player_profile_stats: {e}")
+        return PlayerProfileStats(points=0, rebounds=0, assists=0, blocks=0, steals=0, fg_pct=0, fg3_pct=0)
 
-    return PlayerProfileStats(
-        points=round(averages['PTS'], 1),
-        rebounds=round(averages['REB'], 1),
-        assists=round(averages['AST'], 1),
-        blocks=round(averages['BLK'], 1),
-        steals=round(averages['STL'], 1),
-        fg_pct=round(averages['FG_PCT'] * 100, 1),
-        fg3_pct=round(averages['FG3_PCT'] * 100, 1)
-    )
+
 
 
 # @router.get("/team_profile_stats")

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import PlayerCard from '../components/PlayerCard';
 import PlayerSelector from '../components/PlayerSelector';
-// import PlayerDashboard.css'; // Assuming you have a CSS file for styles
 import '../PlayerDashboard.css'; // Adjust the path as necessary
 
 export default function PlayerDashboard() {
@@ -30,7 +29,7 @@ export default function PlayerDashboard() {
   };
 
   return (
-    <div className={`player-dashboard ${selectedPlayers.length > 2 ? 'grid-2x2' : 'grid-1x2'}`}>
+    <div className={`player-dashboard ${selectedPlayers.length > 2 ? 'grid-2x2' : 'grid-2x2'}`}>
       
       {selectedPlayers.map((p, idx) => (
         <div key={idx} className="player-card-container">
