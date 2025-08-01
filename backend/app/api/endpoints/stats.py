@@ -2,6 +2,7 @@ from fastapi import APIRouter, Query
 from models.schemas import PlayerProfileStats, GameStat
 from nba_api.stats.endpoints import playergamelog
 from utils.seasons import format_season
+from utils.normalize import normalize_stats
 
 router = APIRouter()
 
@@ -42,32 +43,23 @@ def get_player_profile_stats(player_id: str = Query(...), season: str = Query(..
         relevant_columns = ['PTS', 'REB', 'AST', 'BLK', 'STL', 'FG_PCT', 'FG3_PCT']
         averages = logs[relevant_columns].mean().fillna(0)
         print("DEBUG: Averages calculated ->", averages.to_dict())
+        
+        # Averages calculated...
+        print("DEBUG: Normalizing stats")
+        # Normalize the stats
+        print("DEBUG: Raw averages ->", averages.to_dict())
+        normalized = normalize_stats({
+            'PTS': averages['PTS'],
+            'REB': averages['REB'],
+            'AST': averages['AST'],
+            'BLK': averages['BLK'],
+            'STL': averages['STL'],
+            'FG_PCT': averages['FG_PCT'] * 100,
+            'FG3_PCT': averages['FG3_PCT'] * 100
+        })
 
-        # 🎯 Normalization max values (reasonable NBA ranges)
-        max_values = {
-            'PTS': 50,     # 50 PPG max
-            'REB': 20,     # 20 RPG max
-            'AST': 20,     # 20 APG max
-            'BLK': 10,      # 10 BPG max
-            'STL': 10,      # 10 SPG max
-            'FG_PCT': 90,  # 90% max FG%
-            'FG3_PCT': 80  # 80% max 3P%
-        }
-
-        # Normalize to 0–100 scale
-        normalized_stats = {
-            'points': round((averages['PTS'] / max_values['PTS']) * 100, 1),
-            'rebounds': round((averages['REB'] / max_values['REB']) * 100, 1),
-            'assists': round((averages['AST'] / max_values['AST']) * 100, 1),
-            'blocks': round((averages['BLK'] / max_values['BLK']) * 100, 1),
-            'steals': round((averages['STL'] / max_values['STL']) * 100, 1),
-            'fg_pct': round((averages['FG_PCT'] * 100 / max_values['FG_PCT']) * 100, 1),  # FG% in % then normalized
-            'fg3_pct': round((averages['FG3_PCT'] * 100 / max_values['FG3_PCT']) * 100, 1) # 3P% normalized
-        }
-
-        print("DEBUG: Normalized stats ->", normalized_stats)
-
-        return PlayerProfileStats(**normalized_stats)
+        print("DEBUG: Normalized stats ->", normalized)
+        return PlayerProfileStats(**normalized)
 
     except Exception as e:
         print(f"ERROR in player_profile_stats: {e}")
