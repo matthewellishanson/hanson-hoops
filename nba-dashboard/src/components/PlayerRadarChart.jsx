@@ -47,33 +47,40 @@ function PlayerRadarChart({ playerId, season, playerName }) {
   ];
 
   return (
-    <Plot
-      data={[{
-        type: 'scatterpolar',
-        r: values,
-        theta: [
-          'Points',
-          'Rebounds',
-          'Assists',
-          'Blocks',
-          'Steals',
-          'FG%',
-          '3P%'
-        ],
-        fill: 'toself',
-      }]}
-      layout={{
-        title: `${playerName} Profile`,
-        polar: { radialaxis: { visible: true } },
-        margin: { t: 30, l: 30, r: 30, b: 30 },
-        autosize: true,
-      }}
-      style={{ width: '100%', height: '100%' }}   // ✅ Fit to container
-      useResizeHandler={true}                     // ✅ React to card resize
-      config={{ responsive: true }}               // ✅ Prevent overflow
-    />
-
+  <Plot
+    data={[{
+      type: 'scatterpolar',
+      r: values,
+      theta: [
+        'Points',
+        'Rebounds',
+        'Assists',
+        'Blocks',
+        'Steals',
+        'FG%',
+        '3P%'
+      ],
+      fill: 'toself',
+    }]}
+    layout={{
+      title: `${playerName} Profile`,
+      polar: {
+        radialaxis: {
+          visible: true,
+          range: [0, 100],  // 🔥 Force 0–100 for all stats
+          tickvals: [0, 20, 40, 60, 80, 100], // Optional: evenly spaced ticks
+          ticktext: ['0', '20', '40', '60', '80', '100'] // Optional: label ticks
+        }
+      },
+      margin: { t: 30, l: 30, r: 30, b: 30 },
+      autosize: true,
+    }}
+    style={{ width: '100%', height: '100%' }}
+    useResizeHandler={true}
+    config={{ responsive: true }}
+  />
   );
+
 }
 
 export default PlayerRadarChart;
