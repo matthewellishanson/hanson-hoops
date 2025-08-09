@@ -48,6 +48,7 @@ def get_player_profile_stats(player_id: str = Query(...), season: str = Query(..
         print("DEBUG: Normalizing stats")
         # Normalize the stats
         print("DEBUG: Raw averages ->", averages.to_dict())
+        # Normalized values
         normalized = normalize_stats({
             'PTS': averages['PTS'],
             'REB': averages['REB'],
@@ -58,8 +59,23 @@ def get_player_profile_stats(player_id: str = Query(...), season: str = Query(..
             'FG3_PCT': averages['FG3_PCT'] * 100
         })
 
-        print("DEBUG: Normalized stats ->", normalized)
-        return PlayerProfileStats(**normalized)
+        return PlayerProfileStats(
+            points=normalized['points'],
+            rebounds=normalized['rebounds'],
+            assists=normalized['assists'],
+            blocks=normalized['blocks'],
+            steals=normalized['steals'],
+            fg_pct=normalized['fg_pct'],
+            fg3_pct=normalized['fg3_pct'],
+
+            raw_points=round(averages['PTS'], 1),
+            raw_rebounds=round(averages['REB'], 1),
+            raw_assists=round(averages['AST'], 1),
+            raw_blocks=round(averages['BLK'], 1),
+            raw_steals=round(averages['STL'], 1),
+            raw_fg_pct=round(averages['FG_PCT'] * 100, 1),
+            raw_fg3_pct=round(averages['FG3_PCT'] * 100, 1)
+        )
 
     except Exception as e:
         print(f"ERROR in player_profile_stats: {e}")

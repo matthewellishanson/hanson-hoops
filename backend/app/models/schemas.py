@@ -10,6 +10,15 @@ class PlayerProfileStats(BaseModel):
     steals: float
     fg_pct: float
     fg3_pct: float
+    
+    raw_points: float
+    raw_rebounds: float
+    raw_assists: float
+    raw_blocks: float
+    raw_steals: float
+    raw_fg_pct: float
+    raw_fg3_pct: float
+
 
 class GameStat(BaseModel):
     game_date: str

@@ -13,7 +13,13 @@ export default function PlayerCard({ playerId, playerName, season, onReplace }) 
           Replace
         </button>
       </div>
-      <PlayerRadarChart playerId={playerId} season={season} />
+      <div className="chart-container">
+        <PlayerRadarChart 
+          playerId={playerId} 
+          season={season} 
+          playerName={playerName} 
+        />
+      </div>
     </div>
   );
 }

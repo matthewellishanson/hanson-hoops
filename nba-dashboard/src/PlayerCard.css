@@ -5,3 +5,17 @@
   height: 350px;         /* Fixed height for uniform cards */
   overflow: hidden;      /* Prevent chart overflow */
 }
+
+.chart-container {
+  width: 100%;
+  height: 300px; /* Match the fixed height in Card */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chart-container .js-plotly-plot {
+  width: 100% !important;
+  height: 100% !important;
+}
+
