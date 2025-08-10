@@ -30,3 +30,18 @@ class GameStat(BaseModel):
 class Player(BaseModel):
     id: str
     name: str
+
+class ShotEvent(BaseModel):
+    x: float
+    y: float
+    made: bool
+    shot_zone: Optional[str] = None
+    shot_distance: Optional[float] = None
+
+class PlayerShotsResponse(BaseModel):
+    player_id: str
+    season: str
+    total: int
+    makes: int
+    attempts: int
+    shots: List[ShotEvent]
