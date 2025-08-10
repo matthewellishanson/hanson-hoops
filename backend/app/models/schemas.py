@@ -1,8 +1,9 @@
-# app/models/schemas.py
-
+# models/schemas.py
 from pydantic import BaseModel
+from typing import List, Optional
 
 class PlayerProfileStats(BaseModel):
+    # normalized (0–100)
     points: float
     rebounds: float
     assists: float
@@ -10,14 +11,16 @@ class PlayerProfileStats(BaseModel):
     steals: float
     fg_pct: float
     fg3_pct: float
-    
-    raw_points: float
-    raw_rebounds: float
-    raw_assists: float
-    raw_blocks: float
-    raw_steals: float
-    raw_fg_pct: float
-    raw_fg3_pct: float
+
+    # raw
+    raw_points: Optional[float] = None
+    raw_rebounds: Optional[float] = None
+    raw_assists: Optional[float] = None
+    raw_blocks: Optional[float] = None
+    raw_steals: Optional[float] = None
+    raw_fg_pct: Optional[float] = None
+    raw_fg3_pct: Optional[float] = None
+
 
 
 class GameStat(BaseModel):

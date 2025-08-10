@@ -2,81 +2,79 @@ import React, { useEffect, useState } from 'react';
 import Plot from 'react-plotly.js';
 import axios from 'axios';
 
-function PlayerRadarChart({ playerId, season, playerName }) {
+export default function PlayerRadarChart({ playerId, season, playerName = 'Player' }) {
   const [stats, setStats] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
+    let active = true;
     async function fetchStats() {
       try {
-        const response = await axios.get('http://localhost:8000/player_profile_stats', {
-          params: { player_id: playerId, season: season },
+        setError(null);
+        const res = await axios.get('http://localhost:8000/player_profile_stats', {
+          params: { player_id: playerId, season }
         });
-        console.log("DEBUG: API response", response.data);  // 👈 add this
-        setStats(response.data);
-      } catch (error) {
-        console.error('Error fetching player stats:', error);
+        if (active) setStats(res.data);
+      } catch (e) {
+        console.error('Error fetching player stats:', e);
+        if (active) setError('Could not load stats');
       }
     }
-
     fetchStats();
+    return () => { active = false; };
   }, [playerId, season]);
 
+  if (error) return <div>{error}</div>;
+  if (!stats) return <div>Loading chart...</div>;
 
-  if (!stats) return <p>Loading chart...</p>;
+  const values = [
+    stats.points, stats.rebounds, stats.assists,
+    stats.blocks, stats.steals, stats.fg_pct, stats.fg3_pct
+  ];
 
-  // Handle case where stats might be empty or zero
-  if (
-    stats.points === 0 &&
-    stats.rebounds === 0 &&
-    stats.assists === 0 &&
-    stats.blocks === 0 &&
-    stats.steals === 0
-  ) {
-  return <div>No data available for this player in {season}</div>;
-}
+  // guard against bad data
+  const allFinite = values.every(v => Number.isFinite(v));
+  if (!allFinite) return <div>Data unavailable for this selection.</div>;
 
+  const theta = ['Points', 'Rebounds', 'Assists', 'Blocks', 'Steals', 'FG%', '3P%'];
 
-    const values = [
-      stats.points,
-      stats.rebounds,
-      stats.assists,
-      stats.blocks,
-      stats.steals,
-      stats.fg_pct,
-      stats.fg3_pct,
-    ];
-
-    const hoverText = [
-      `Points: ${stats.raw_points} PPG`,
-      `Rebounds: ${stats.raw_rebounds} RPG`,
-      `Assists: ${stats.raw_assists} APG`,
-      `Blocks: ${stats.raw_blocks} BPG`,
-      `Steals: ${stats.raw_steals} SPG`,
-      `FG%: ${stats.raw_fg_pct}%`,
-      `3P%: ${stats.raw_fg3_pct}%`
-    ];
+  // raw values for tooltip
+  const hoverText = [
+    `Points: ${stats.raw_points} PPG`,
+    `Rebounds: ${stats.raw_rebounds} RPG`,
+    `Assists: ${stats.raw_assists} APG`,
+    `Blocks: ${stats.raw_blocks} BPG`,
+    `Steals: ${stats.raw_steals} SPG`,
+    `FG%: ${stats.raw_fg_pct}%`,
+    `3P%: ${stats.raw_fg3_pct}%`
+  ];
 
   return (
     <Plot
       data={[{
         type: 'scatterpolar',
-        r: values,
-        theta: ['Points', 'Rebounds', 'Assists', 'Blocks', 'Steals', 'FG%', '3P%'],
+        r: values,          // normalized 0–100 for visual scale
+        theta,              // category labels
         fill: 'toself',
-        text: hoverText,
-        hoverinfo: 'text', // show only the tooltip text
+        text: hoverText,    // show raw averages in tooltip
+        hoverinfo: 'text',
+        name: playerName
       }]}
       layout={{
         title: `${playerName} Profile`,
-        polar: { radialaxis: { visible: true, range: [0, 100] } },
+        polar: {
+          radialaxis: {
+            visible: true,
+            range: [0, 100],                // keep charts comparable
+            tickvals: [0, 20, 40, 60, 80, 100]
+          }
+        },
         margin: { t: 30, l: 30, r: 30, b: 30 },
+        autosize: true
       }}
       style={{ width: '100%', height: '100%' }}
       useResizeHandler={true}
       config={{ responsive: true }}
     />
   );
-
 }
-
-export default PlayerRadarChart;
