@@ -61,7 +61,7 @@ export default function ShotMap({ playerId, season }) {
       }}
       style={{ width: '100%', height: '100%' }}
       useResizeHandler
-      config={{ responsive: true }}
+      config={{ responsive: true, displayModeBar: false }}
     />
   );
 }

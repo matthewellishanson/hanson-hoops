@@ -74,7 +74,7 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
       }}
       style={{ width: '100%', height: '100%' }}
       useResizeHandler={true}
-      config={{ responsive: true }}
+      config={{ responsive: true, displayModeBar: false }}
     />
   );
 }
