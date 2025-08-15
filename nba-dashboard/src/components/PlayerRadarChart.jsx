@@ -7,22 +7,24 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (!playerId) { setStats(null); return; }     // ✅ guard
     let active = true;
-    async function fetchStats() {
+    (async () => {
       try {
-        setError(null);
         const res = await axios.get('http://localhost:8000/player_profile_stats', {
           params: { player_id: playerId, season }
         });
         if (active) setStats(res.data);
       } catch (e) {
         console.error('Error fetching player stats:', e);
-        if (active) setError('Could not load stats');
+        if (active) setStats(null);
       }
-    }
-    fetchStats();
+    })();
     return () => { active = false; };
   }, [playerId, season]);
+
+  if (!playerId) return <div>Select a player to see a chart.</div>;
+
 
   if (error) return <div>{error}</div>;
   if (!stats) return <div>Loading chart...</div>;
@@ -69,7 +71,7 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
             tickvals: [0, 20, 40, 60, 80, 100]
           }
         },
-        margin: { t: 30, l: 30, r: 30, b: 30 },
+        margin: { t: 24, l: 16, r: 16, b: 22 },
         autosize: true
       }}
       style={{ width: '100%', height: '100%' }}

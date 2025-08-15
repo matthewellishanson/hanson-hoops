@@ -6,21 +6,25 @@ export default function ShotMap({ playerId, season }) {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    let active = true;
-    async function load() {
-      try {
-        const res = await axios.get('http://localhost:8000/player_shots', {
-          params: { player_id: playerId, season }
-        });
-        if (active) setData(res.data);
-      } catch (e) {
-        console.error('Error fetching shots:', e);
-        if (active) setData({ shots: [] });
-      }
+  if (!playerId) { setData(null); return; }      // ✅ guard
+  let active = true;
+  (async () => {
+    try {
+      const res = await axios.get('http://localhost:8000/player_shots', {
+        params: { player_id: playerId, season }
+      });
+      if (active) setData(res.data);
+    } catch (e) {
+      console.error('Error fetching shots:', e);
+      if (active) setData({ shots: [] });
     }
-    load();
-    return () => { active = false; };
-  }, [playerId, season]);
+  })();
+  return () => { active = false; };
+}, [playerId, season]);
+
+if (!playerId) return <div>Select a player to see a shot map.</div>;
+
+
 
   if (!data) return <div>Loading shot map…</div>;
 
@@ -56,7 +60,7 @@ export default function ShotMap({ playerId, season }) {
         legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.2 },
         xaxis: { visible: false, range: [-250, 250] },
         yaxis: { visible: false, range: [-50, 420] },
-        margin: { t: 10, l: 10, r: 10, b: 30 },
+        margin: { t: 24, l: 16, r: 16, b: 22 },
         autosize: true
       }}
       style={{ width: '100%', height: '100%' }}
