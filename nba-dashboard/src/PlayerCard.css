@@ -60,14 +60,70 @@
 .pcard-back  { transform: rotateY(180deg); z-index: 1; }
 
 
-.pcard-header { display:flex; align-items:center; justify-content:space-between; min-height:34px; }
-.pcard-footer { display:flex; justify-content:flex-end; gap:8px; min-height:36px; margin-top:8px; }
-.pcard-title { font-size: 1.1rem; font-weight: 700; margin: 0; }
-.pcard-link { appearance:none; background:none; border:none; color:#2563eb; cursor:pointer; }
-.pcard-link:hover { text-decoration: underline; }
-.pcard-btn { appearance:none; border:1px solid #2563eb; background:#2563eb; color:#fff; border-radius:8px; padding:6px 10px; cursor:pointer; }
-.pcard-btn.secondary { background:#6b7280; border-color:#6b7280; }
-.pcard-btn:hover { opacity:.9; }
+/* Header bar that appears on both faces */
+.pcard-header {
+  display: grid;
+  grid-template-columns: 1fr auto auto; /* left info | meta | replace btn */
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.pcard-header-left {
+  display: grid;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.pcard-headshot {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #f1f5f9;
+}
+.pcard-headshot.placeholder {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: #e5e7eb;
+}
+
+.pcard-titleblock {
+  min-width: 0;
+}
+.pcard-title {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.pcard-sub {
+  font-size: 0.85rem;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* right-side meta chips */
+.pcard-meta {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  font-size: 0.85rem;
+  color: #374151;
+}
+
+@media (max-width: 768px) {
+  .pcard-header {
+    grid-template-columns: 1fr auto; /* stack meta under left or shrink */
+  }
+  .pcard-meta {
+    justify-items: start;
+  }
+}
 
 .chart-container {
   min-height: 0;     /* required in CSS grid */

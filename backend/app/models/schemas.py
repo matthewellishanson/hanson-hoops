@@ -45,3 +45,18 @@ class PlayerShotsResponse(BaseModel):
     makes: int
     attempts: int
     shots: List[ShotEvent]
+
+class PlayerBio(BaseModel):
+    id: str
+    name: str
+    team: str | None = None
+    jersey: str | None = None
+    position: str | None = None
+    height: str | None = None          # e.g. "6-8"
+    height_cm: float | None = None
+    weight_lbs: float | None = None
+    age: float | None = None
+    headshot_url: str | None = None
+    # Placeholders for future sources (not in nba_api)
+    contract_years: int | None = None
+    salary_usd: int | None = None

@@ -9,14 +9,13 @@ export default function App() {
 
   // Update the player information
   const updatePlayer = (idx, player) => {
-  if (!player || !player.id || !player.name) {
-    console.warn('updatePlayer called with invalid player:', player);
-    setShowSelectorIndex(null);
-    return; // don't update state with a bad object
-  }
   setSelectedPlayers(prev => {
     const next = [...prev];
-    next[idx] = { playerId: player.id, playerName: player.name, season: '2023-24' };
+    next[idx] = {
+      playerId: player.id,
+      playerName: player.name,
+      season: player.season,   // ✅ use selected season
+    };
     return next;
   });
   setShowSelectorIndex(null);
