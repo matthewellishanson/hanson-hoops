@@ -4,7 +4,7 @@ import ShotMap from './ShotMap';
 import '../PlayerCard.css';
 
 
-export default function PlayerCard({ playerId, playerName, season, onReplace }) {
+export default function PlayerCard({ playerId, playerName, season, onReplace, style }) {
   const [flipped, setFlipped] = useState(false);
   const [backMounted, setBackMounted] = useState(false);
   const faceRef = useRef(null);
@@ -34,7 +34,7 @@ export default function PlayerCard({ playerId, playerName, season, onReplace }) 
   }, []);
 
   return (
-    <div className="pcard">
+    <div className="pcard" style={style}>
       <div className={`pcard-flip ${flipped ? 'is-flipped' : ''}`}>
         <div className="pcard-face pcard-front" ref={faceRef} aria-hidden={flipped}>
           <div className="pcard-header">

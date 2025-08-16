@@ -34,7 +34,7 @@
   border-radius: 12px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   width: 100%;
-  height: 440px;                 /* fixed, predictable */
+  height: var(--card-h, 440px);  /* ⬅️ controlled by dashboard */
   background: #fff;
   perspective: 1000px;
   overflow: hidden;
