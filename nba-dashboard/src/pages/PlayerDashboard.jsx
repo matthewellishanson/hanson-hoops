@@ -19,6 +19,8 @@ export default function PlayerDashboard({
 }) {
   const count = selectedPlayers.length;
 
+  console.log('[PD] count =', count);
+
   // Decide target card height based on how many players are on screen.
   // Using viewport units helps two rows fit without scrolling.
   const cardHeight =
@@ -26,14 +28,19 @@ export default function PlayerDashboard({
     count === 2 ? '54vh' :      // 2 cards: a bit shorter so they fit side by side
     '46vh';                     // 3 or 4 cards: two rows, each card ~half the viewport
 
+  console.log('[PD] cardHeight =', cardHeight);
+
   // Turn [p0, p1, p2, p3] into [[p0,p1],[p2,p3]]
   const rows = chunk2(selectedPlayers);
+  console.log('[PD] rows =', rows);
 
   return (
     <div className="container py-4 min-vh-100" style={{ maxWidth: 1280 }}>
       {/* Loop each row (two cards per row) */}
       {rows.map((row, rIndex) => {
         const isSingle = row.length === 1; // a row with just one card (e.g., 3 total players)
+        console.log('[PD] row', rIndex, 'length', row.length);
+
 
         return (
           <div
@@ -57,6 +64,8 @@ export default function PlayerDashboard({
               const colClasses = isSingle
                 ? 'col-12 col-md-8 col-lg-6 d-flex'
                 : 'col-12 col-md-6 d-flex';
+
+              console.log('[PD] idx =', idx, 'colClasses =', colClasses, 'p =', p);
 
               return (
                 <div key={key} className={colClasses}>
