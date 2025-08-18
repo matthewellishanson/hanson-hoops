@@ -17,7 +17,7 @@ export default function PlayerSelector({ onSelect }) {
     e.preventDefault();
     const player = players.find(p => p.id === selectedPlayer);
     if (player) {
-      onSelect({ id: selectedPlayer, name: player.name });
+      onSelect({ id: selectedPlayer, name: player.name, season });
     }
   };
 

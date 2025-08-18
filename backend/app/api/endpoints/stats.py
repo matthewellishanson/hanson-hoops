@@ -2,10 +2,10 @@ from fastapi import APIRouter, Query
 from models.schemas import PlayerProfileStats, GameStat, PlayerShotsResponse, ShotEvent
 from nba_api.stats.endpoints import playergamelog, shotchartdetail
 from functools import lru_cache
-from utils.seasons import format_season
+from utils.seasons import format_season, current_nba_season
 from utils.normalize import normalize_stats
 import pandas as pd
-
+from typing import Optional
 
 router = APIRouter()
 

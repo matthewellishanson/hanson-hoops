@@ -6,19 +6,21 @@ export default function App() {
     { playerId: '2544', playerName: 'LeBron James', season: '2023-24' },
   ]);
   const [showSelectorIndex, setShowSelectorIndex] = useState(null);
+  // good default to use across the app (UI label can differ)
+  const DEFAULT_SEASON = '2023';  // backend will format "2023" -> "2023-24"
 
-  // Update the player information
+  // When user selects a player in the selector:
   const updatePlayer = (idx, player) => {
-  setSelectedPlayers(prev => {
-    const next = [...prev];
-    next[idx] = {
-      playerId: player.id,
-      playerName: player.name,
-      season: player.season,   // ✅ use selected season
-    };
-    return next;
-  });
-  setShowSelectorIndex(null);
+    setSelectedPlayers(prev => {
+      const next = [...prev];
+      next[idx] = {
+        playerId: player.id,
+        playerName: player.name,
+        season: player.season || DEFAULT_SEASON,  // ✅ use season from selector or default
+      };
+      return next;
+    });
+    setShowSelectorIndex(null);
   };
 
 
@@ -30,7 +32,7 @@ export default function App() {
   const onAddPlayer = () => {
     setSelectedPlayers(prev => {
       if (prev.length >= 4) return prev;
-      const next = [...prev, { playerId: '', playerName: '', season: '2023-24' }];
+      const next = [...prev, { playerId: '', playerName: '', season: DEFAULT_SEASON }];
       // open selector for the new slot
       setShowSelectorIndex(next.length - 1);
       return next;
