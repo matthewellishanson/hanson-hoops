@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.endpoints import players, stats  # adjust import if needed
+from api.endpoints import players, teams  # adjust import if needed
 
 app = FastAPI()
 
@@ -15,4 +15,4 @@ app.add_middleware(
 
 # Routers
 app.include_router(players.router)
-app.include_router(stats.router)
+app.include_router(teams.router)

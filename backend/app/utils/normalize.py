@@ -1,12 +1,12 @@
 def normalize_stats(raw):
     max_values = {
-        'PTS': 50,
-        'REB': 20,
-        'AST': 20,
-        'BLK': 10,
-        'STL': 10,
-        'FG_PCT': 90,
-        'FG3_PCT': 80,
+    # basic
+    'PTS': 130, 'REB': 60, 'OREB': 30, 'DREB': 50, 'AST': 40, 'BLK': 15, 'STL': 20,
+    'FG_PCT': 65, 'FG3_PCT': 45, 'FT_PCT': 90,
+    # advanced
+    'OFF_RTG': 130, 'DEF_RTG': 130, 'PTS_100': 130,
+    'AST_TO': 3.5, 'EFG_PCT': 65, 'FTA_RATE': 0.6,
+    'EXP_FG_PCT': 60, 'EXP_3P_PCT': 45,
     }
     return {
         'points': round((raw['PTS'] / max_values['PTS']) * 100, 1),

@@ -1,93 +1,271 @@
-from fastapi import APIRouter, Query
-from models.schemas import Player, PlayerBio
-from nba_api.stats.endpoints import commonallplayers, commonplayerinfo
-from datetime import datetime, date 
-
+from fastapi import APIRouter, Query, HTTPException
+from functools import lru_cache
+from nba_api.stats.endpoints import playergamelog, shotchartdetail, commonplayerinfo
+from nba_api.stats.static import players as static_players
+from models.schemas import (
+    PlayerProfileStats,
+    GameStat,
+    PlayerShotsResponse,
+    ShotEvent,
+)
+from utils.seasons import format_season, current_nba_season
+from utils.normalize import normalize_stats
+from typing import List, Optional
+import pandas as pd
+from datetime import datetime, date
 
 router = APIRouter()
 
-import threading
-import time
+# Players endpoint
+@lru_cache(maxsize=1)
+def _all_players_norm() -> list[dict]:
+    """
+    Cache and normalize players to {id, name, is_active}.
+    """
+    raw = static_players.get_players()  # [{'id': 2544, 'full_name': 'LeBron James', 'is_active': True}, ...]
+    out: list[dict] = []
+    for p in raw:
+        pid = p.get("id")
+        name = p.get("full_name") or p.get("full_name_with_affiliation") or ""
+        if not pid or not name:
+            continue
+        out.append({
+            "id": str(pid),
+            "name": name,
+            "is_active": bool(p.get("is_active", True)),
+        })
+    # sort by name for nicer UX
+    out.sort(key=lambda x: x["name"])
+    return out
 
-_cached_players = None
-_cache_timestamp = 0
-_cache_lock = threading.Lock()
-_CACHE_TTL = 60 * 60  # 1 hour
+@router.get("/players")
+def list_players(q: str | None = Query(None), active_only: bool = Query(False)):
+    """
+    Return players for the selector.
+    - q: optional case-insensitive substring filter on name
+    - active_only: filter to currently active players
+    """
+    items = _all_players_norm()
+    if active_only:
+        items = [p for p in items if p["is_active"]]
+    if q:
+        ql = q.lower()
+        items = [p for p in items if ql in p["name"].lower()]
+    return items
 
-def get_cached_players():
-    global _cached_players, _cache_timestamp
-    with _cache_lock:
-        now = time.time()
-        if _cached_players is None or now - _cache_timestamp > _CACHE_TTL:
-            players = commonallplayers.CommonAllPlayers(is_only_current_season=1).get_data_frames()[0]
-            active = players[players["ROSTERSTATUS"] == 1]
-            _cached_players = [Player(id=str(row["PERSON_ID"]), name=row["DISPLAY_FIRST_LAST"]) for _, row in active.iterrows()]
-            _cache_timestamp = now
-        return _cached_players
-
-@router.get("/players", response_model=list[Player])
-def get_players():
-    return get_cached_players()
-
-def _parse_height_to_cm(height_str: str | None) -> float | None:
-    # NBA returns "6-8" etc
+# Player Bio
+def _height_to_cm_str(height_str: str | None) -> str | None:
+    # HEIGHT comes like "6-8" -> inches -> cm
     if not height_str or "-" not in height_str:
         return None
     try:
-        ft, inch = height_str.split("-")
-        inches_total = int(ft) * 12 + int(inch)
-        return round(inches_total * 2.54, 1)
+        feet, inches = height_str.split("-")
+        total_in = int(feet) * 12 + int(inches)
+        cm = round(total_in * 2.54)
+        return str(cm)
     except Exception:
         return None
 
-def _compute_age(birthdate_str: str | None) -> float | None:
-    # birthdate like "12/30/1984"
+def _calc_age(birthdate_str: str | None) -> int | None:
+    # birthdate format: "1984-12-30T00:00:00"
     if not birthdate_str:
         return None
     try:
-        b = datetime.strptime(birthdate_str, "%m/%d/%Y").date()
+        d = datetime.fromisoformat(birthdate_str.replace("Z", "")).date()
         today = date.today()
-        # years with one decimal (approx)
-        days = (today - b).days
-        return round(days / 365.2425, 1)
+        return today.year - d.year - ((today.month, today.day) < (d.month, d.day))
     except Exception:
         return None
 
-@router.get("/player_bio", response_model=PlayerBio)
+@lru_cache(maxsize=512)
+def _fetch_player_bio(player_id: str) -> dict | None:
+    info = commonplayerinfo.CommonPlayerInfo(player_id=int(player_id)).get_data_frames()
+    if not info or len(info) == 0 or info[0].empty:
+        return None
+
+    df = info[0].iloc[0]
+
+    # Some columns vary by library version; use .get with defaults
+    name = df.get("DISPLAY_FIRST_LAST") or df.get("DISPLAY_FI_LAST") or df.get("PLAYER_NAME")
+    team = df.get("TEAM_NAME") or df.get("TEAM_ABBREVIATION")
+    position = df.get("POSITION")
+    height = df.get("HEIGHT")              # e.g. "6-9"
+    weight = df.get("WEIGHT")              # string like "250"
+    jersey = df.get("JERSEY")
+    birthdate = df.get("BIRTHDATE")
+    age = _calc_age(birthdate)
+
+    # Headshot CDN (works for most current players)
+    headshot_url = f"https://cdn.nba.com/headshots/nba/latest/260x190/{player_id}.png"
+
+    return {
+        "player_id": str(player_id),
+        "name": name,
+        "team": team,
+        "position": position,
+        "height": height,
+        "height_cm": _height_to_cm_str(height),
+        "weight_lbs": (int(weight) if isinstance(weight, (int, float, str)) and str(weight).isdigit() else None),
+        "jersey": jersey if jersey not in ("", None, "0") else None,
+        "age": age,
+        "headshot_url": headshot_url,
+    }
+
+@router.get("/player_bio")
 def get_player_bio(player_id: str = Query(...)):
-    info = commonplayerinfo.CommonPlayerInfo(player_id=player_id).get_data_frames()[0]
-    row = info.iloc[0].to_dict()
+    data = _fetch_player_bio(player_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Player bio not found")
+    return data
 
-    name = row.get("DISPLAY_FIRST_LAST")
-    team = row.get("TEAM_NAME") or None
-    jersey = row.get("JERSEY") or None
-    position = row.get("POSITION") or None
-    height = row.get("HEIGHT") or None              # "6-8"
-    weight = row.get("WEIGHT") or None              # string like "250"
-    birthdate = row.get("BIRTHDATE") or None        # "12/30/1984"
-
-    height_cm = _parse_height_to_cm(height)
-    try:
-        weight_lbs = float(weight) if weight else None
-    except Exception:
-        weight_lbs = None
-
-    age = _compute_age(birthdate)
-
-    # NBA CDN headshots: common pattern
-    headshot_url = f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png"
-
-    return PlayerBio(
-        id=str(player_id),
-        name=name,
-        team=team,
-        jersey=jersey,
-        position=position,
-        height=height,
-        height_cm=height_cm,
-        weight_lbs=weight_lbs,
-        age=age,
-        headshot_url=headshot_url,
-        contract_years=None,    # not in nba_api; fill later if you add another source
-        salary_usd=None,
+# -------------------------
+# Cached player shot charts
+# -------------------------
+@lru_cache(maxsize=256)
+def _player_shots_for_season(player_id: str, season_fmt: str) -> pd.DataFrame:
+    sc = shotchartdetail.ShotChartDetail(
+        team_id=0,
+        player_id=int(player_id),
+        season_nullable=season_fmt,
+        season_type_all_star="Regular Season",
+        context_measure_simple="FGA",
     )
+    frames = sc.get_data_frames()
+    return frames[0] if frames and len(frames) > 0 else pd.DataFrame()
+
+@router.get("/player_shots", response_model=PlayerShotsResponse)
+def get_player_shots(
+    player_id: str = Query(...),
+    season: Optional[str] = Query(None),
+):
+    season = season or current_nba_season()
+    season_fmt = format_season(season)
+
+    shots_df = _player_shots_for_season(player_id, season_fmt)
+
+    if shots_df.empty:
+        return PlayerShotsResponse(
+            player_id=player_id, season=season_fmt,
+            total=0, makes=0, attempts=0, shots=[]
+        )
+
+    cols = ["LOC_X", "LOC_Y", "SHOT_MADE_FLAG", "SHOT_ZONE_BASIC", "SHOT_DISTANCE"]
+    shots_df = shots_df[[c for c in cols if c in shots_df.columns]].copy()
+
+    shots: List[ShotEvent] = [
+        ShotEvent(
+            x=float(r.LOC_X),
+            y=float(r.LOC_Y),
+            made=bool(r.SHOT_MADE_FLAG),
+            shot_zone=(r.SHOT_ZONE_BASIC if pd.notna(r.SHOT_ZONE_BASIC) else None),
+            shot_distance=(float(r.SHOT_DISTANCE) if pd.notna(r.SHOT_DISTANCE) else None),
+        )
+        for _, r in shots_df.iterrows()
+    ]
+
+    attempts = len(shots)
+    makes = int(shots_df["SHOT_MADE_FLAG"].sum()) if "SHOT_MADE_FLAG" in shots_df.columns else 0
+
+    return PlayerShotsResponse(
+        player_id=player_id,
+        season=season_fmt,
+        total=attempts,
+        makes=makes,
+        attempts=attempts,
+        shots=shots
+    )
+
+# -------------------------
+# Game log series
+# -------------------------
+@router.get("/player_stats", response_model=list[GameStat])
+def get_player_stats(
+    player_id: str = Query(...),
+    season: Optional[str] = Query(None),
+):
+    season = season or current_nba_season()
+    formatted_season = format_season(season)
+
+    logs = playergamelog.PlayerGameLog(
+        player_id=player_id,
+        season=formatted_season,
+        season_type_all_star="Regular Season",
+    ).get_data_frames()[0]
+
+    if logs.empty:
+        return []
+
+    stats = logs[["GAME_DATE", "PTS"]].sort_values("GAME_DATE")
+    return [
+        GameStat(game_date=row["GAME_DATE"], points=int(row["PTS"]))
+        for _, row in stats.iterrows()
+    ]
+
+# -------------------------
+# Profile averages
+# -------------------------
+@router.get("/player_profile_stats", response_model=PlayerProfileStats)
+def get_player_profile_stats(
+    player_id: str = Query(...),
+    season: Optional[str] = Query(None),
+):
+    try:
+        season = season or current_nba_season()
+        formatted_season = format_season(season)
+
+        logs = playergamelog.PlayerGameLog(
+            player_id=player_id,
+            season=formatted_season,
+            season_type_all_star="Regular Season"
+        ).get_data_frames()[0]
+
+        if logs.empty:
+            return PlayerProfileStats(
+                points=0, rebounds=0, assists=0, blocks=0, steals=0, fg_pct=0, fg3_pct=0,
+                raw_points=0, raw_rebounds=0, raw_assists=0, raw_blocks=0, raw_steals=0,
+                raw_fg_pct=0, raw_fg3_pct=0
+            )
+
+        averages = logs[['PTS', 'REB', 'AST', 'BLK', 'STL']].mean().fillna(0)
+
+        fgm  = float(logs['FGM'].sum())
+        fga  = float(logs['FGA'].sum())
+        fg3m = float(logs['FG3M'].sum())
+        fg3a = float(logs['FG3A'].sum())
+
+        fg_pct_season  = (fgm / fga * 100.0) if fga > 0 else 0.0
+        fg3_pct_season = (fg3m / fg3a * 100.0) if fg3a > 0 else 0.0
+
+        normalized = normalize_stats({
+            'PTS': averages['PTS'],
+            'REB': averages['REB'],
+            'AST': averages['AST'],
+            'BLK': averages['BLK'],
+            'STL': averages['STL'],
+            'FG_PCT':  fg_pct_season,
+            'FG3_PCT': fg3_pct_season,
+        })
+
+        return PlayerProfileStats(
+            points=normalized['points'],
+            rebounds=normalized['rebounds'],
+            assists=normalized['assists'],
+            blocks=normalized['blocks'],
+            steals=normalized['steals'],
+            fg_pct=normalized['fg_pct'],
+            fg3_pct=normalized['fg3_pct'],
+            raw_points=round(float(averages['PTS']), 1),
+            raw_rebounds=round(float(averages['REB']), 1),
+            raw_assists=round(float(averages['AST']), 1),
+            raw_blocks=round(float(averages['BLK']), 1),
+            raw_steals=round(float(averages['STL']), 1),
+            raw_fg_pct=round(fg_pct_season, 1),
+            raw_fg3_pct=round(fg3_pct_season, 1),
+        )
+
+    except Exception:
+        return PlayerProfileStats(
+            points=0, rebounds=0, assists=0, blocks=0, steals=0, fg_pct=0, fg3_pct=0,
+            raw_points=0, raw_rebounds=0, raw_assists=0, raw_blocks=0, raw_steals=0,
+            raw_fg_pct=0, raw_fg3_pct=0
+        )
