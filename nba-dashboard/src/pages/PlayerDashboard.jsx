@@ -73,15 +73,10 @@ export default function PlayerDashboard({
               )}
 
               {(showSelectorIndex === idx) || !p.playerId ? (
-                <PlayerSelector onSelect={(player) => updatePlayer(idx, player)} />
+                <PlayerSelector initialSeason={p.season} onSelect={(player) => updatePlayer(idx, player)} />
               ) : (
                 <PlayerCard
-                  /* lets the dashboard control card height */
                   style={{ '--card-h': cardHeight }}
-
-                  /* ✅ Also key the card itself by id+season to reset inner state/plots */
-                  key={`${p.playerId || 'empty'}-${p.season || 'na'}`}
-
                   playerId={p.playerId}
                   playerName={p.playerName}
                   season={p.season}

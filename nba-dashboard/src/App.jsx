@@ -11,18 +11,17 @@ export default function App() {
 
   // When user selects a player in the selector:
   const updatePlayer = (idx, player) => {
-    setSelectedPlayers(prev => {
-      const next = [...prev];
-      next[idx] = {
-        playerId: player.id,
-        playerName: player.name,
-        season: player.season || DEFAULT_SEASON,  // ✅ use season from selector or default
-      };
-      return next;
-    });
-    setShowSelectorIndex(null);
+  setSelectedPlayers(prev => {
+    const next = [...prev];
+    next[idx] = {
+      playerId: player.id,
+      playerName: player.name,
+      season: player.season || prev[idx]?.season || '2023-24',  // prefer chosen season
+    };
+    return next;
+  });
+  setShowSelectorIndex(null);
   };
-
 
   const removePlayer = (idx) => {
     setSelectedPlayers(prev => prev.filter((_, i) => i !== idx));

@@ -10,7 +10,7 @@ from models.schemas import (
 )
 from utils.seasons import format_season, current_nba_season
 from utils.normalize import normalize_stats
-from typing import List, Optional
+from typing import List, Optional, Literal
 import pandas as pd
 from datetime import datetime, date
 
@@ -18,40 +18,54 @@ router = APIRouter()
 
 # Players endpoint
 @lru_cache(maxsize=1)
-def _all_players_norm() -> list[dict]:
-    """
-    Cache and normalize players to {id, name, is_active}.
-    """
-    raw = static_players.get_players()  # [{'id': 2544, 'full_name': 'LeBron James', 'is_active': True}, ...]
-    out: list[dict] = []
-    for p in raw:
-        pid = p.get("id")
-        name = p.get("full_name") or p.get("full_name_with_affiliation") or ""
-        if not pid or not name:
-            continue
-        out.append({
-            "id": str(pid),
-            "name": name,
-            "is_active": bool(p.get("is_active", True)),
-        })
-    # sort by name for nicer UX
-    out.sort(key=lambda x: x["name"])
-    return out
+def _all_players_norm():
+    # ~5k records; cache in memory
+    rows = static_players.get_players()
+    return [
+        {
+            "id": str(r["id"]),
+            "name": r["full_name"],
+            "first": r.get("first_name") or "",
+            "last": r.get("last_name") or "",
+            "is_active": bool(r.get("is_active")),
+        }
+        for r in rows
+    ]
 
 @router.get("/players")
-def list_players(q: str | None = Query(None), active_only: bool = Query(False)):
-    """
-    Return players for the selector.
-    - q: optional case-insensitive substring filter on name
-    - active_only: filter to currently active players
-    """
-    items = _all_players_norm()
+def list_players(
+    search: Optional[str] = Query(None, description="Substring match on full name"),
+    startswith: Optional[str] = Query(None, description="Filter by first letter(s) of last name or full name"),
+    active_only: bool = Query(False, description="If True, return only currently active players"),
+    sort: Literal["name","last","first"] = Query("name"),
+    order: Literal["asc","desc"] = Query("asc"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    data = _all_players_norm()
+
     if active_only:
-        items = [p for p in items if p["is_active"]]
-    if q:
-        ql = q.lower()
-        items = [p for p in items if ql in p["name"].lower()]
-    return items
+        data = [p for p in data if p["is_active"]]
+
+    if startswith:
+        s = startswith.lower()
+        data = [
+            p for p in data
+            if p["name"].lower().startswith(s) or p["last"].lower().startswith(s)
+        ]
+
+    if search:
+        q = search.lower()
+        data = [p for p in data if q in p["name"].lower()]
+
+    key_map = {"name": "name", "last": "last", "first": "first"}
+    data.sort(key=lambda p: p[key_map[sort]].lower())
+    if order == "desc":
+        data.reverse()
+
+    total = len(data)
+    items = data[offset: offset + limit]
+    return {"total": total, "items": items}
 
 # Player Bio
 def _height_to_cm_str(height_str: str | None) -> str | None:
