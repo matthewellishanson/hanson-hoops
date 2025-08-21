@@ -1,20 +1,49 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 
+// === local helpers (no import needed) ===
+function currentNbaSeasonStartYear() {
+  // Treat Sep (9) and later as the start of a new NBA season
+  const now = new Date();
+  return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+}
+
+function toSeasonLabel(startYear) {
+  // 2024 -> "2024-25"
+  const endYY = String((startYear + 1) % 100).padStart(2, '0');
+  return `${startYear}-${endYY}`;
+}
+
+function computeCurrentNbaSeason() {
+  return toSeasonLabel(currentNbaSeasonStartYear());
+}
+
+function buildSeasonList(count = 30) {
+  // Last `count` seasons, newest first (e.g., ["2024-25", "2023-24", ...])
+  const start = currentNbaSeasonStartYear();
+  const seasons = [];
+  for (let i = 0; i < count; i++) {
+    seasons.push(toSeasonLabel(start - i));
+  }
+  return seasons;
+}
+// =======================================
+
 export default function PlayerSelector({ onSelect, initialSeason = null }) {
   const [players, setPlayers] = useState([]);
   const [search, setSearch] = useState('');
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
-  const [season, setSeason] = useState(initialSeason || computeCurrentNbaSeason()); // 👈
+  const [season, setSeason] = useState(initialSeason || computeCurrentNbaSeason());
   const limit = 50;
 
+  // debounce search/paging requests
   useEffect(() => {
     const t = setTimeout(() => {
       axios.get('http://localhost:8000/players', {
         params: {
           search: search || undefined,
-          active_only: false,
+          active_only: false,  // all-time list ✅
           limit,
           offset,
           sort: 'name',
@@ -30,13 +59,16 @@ export default function PlayerSelector({ onSelect, initialSeason = null }) {
     return () => clearTimeout(t);
   }, [search, offset]);
 
-  const seasons = useMemo(() => buildSeasonList(30), []); // last 30 seasons
+  const seasons = useMemo(() => buildSeasonList(80), []); // show ~80 seasons (adjust as you like)
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const selectedId = e.target.player.value;
     const player = players.find(p => p.id === selectedId);
-    if (player) onSelect({ id: player.id, name: player.name, season }); // 👈 include season
+    if (player) {
+      // IMPORTANT: include the selected season in the payload
+      onSelect({ id: player.id, name: player.name, season });
+    }
   };
 
   return (
@@ -56,7 +88,6 @@ export default function PlayerSelector({ onSelect, initialSeason = null }) {
         ))}
       </select>
 
-      {/* Season selector */}
       <div className="d-flex gap-2 align-items-center">
         <label className="mb-0">Season:</label>
         <select
@@ -68,7 +99,6 @@ export default function PlayerSelector({ onSelect, initialSeason = null }) {
         </select>
       </div>
 
-      {/* Pager */}
       <div className="d-flex justify-content-between align-items-center">
         <button
           type="button"
@@ -94,26 +124,4 @@ export default function PlayerSelector({ onSelect, initialSeason = null }) {
       <button type="submit" className="btn btn-primary">Add Player</button>
     </form>
   );
-}
-
-/* Helpers */
-function computeCurrentNbaSeason() {
-  // NBA season starts ~Oct; if month >= 8 (Aug) treat as new season’s start year
-  const now = new Date();
-  const y = now.getFullYear();
-  const startYear = now.getMonth() >= 8 ? y : y - 1;
-  const end2 = String((startYear + 1) % 100).padStart(2, '0');
-  return `${startYear}-${end2}`; // e.g., "2024-25"
-}
-
-function buildSeasonList(n = 25) {
-  const list = [];
-  let cur = computeCurrentNbaSeason(); // "YYYY-YY"
-  let y = parseInt(cur.slice(0, 4), 10);
-  for (let i = 0; i < n; i++) {
-    const end2 = String((y + 1) % 100).padStart(2, '0');
-    list.push(`${y}-${end2}`);
-    y -= 1;
-  }
-  return list;
 }
