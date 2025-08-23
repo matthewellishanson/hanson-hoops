@@ -1,7 +1,13 @@
-// src/components/ShotMap.jsx
 import React, { useEffect, useState } from 'react';
+import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
 import axios from 'axios';
+
+// Let react-plotly.js find Plotly on window
+if (typeof window !== 'undefined' && !window.Plotly) {
+  window.Plotly = Plotly;
+}
+
 
 // ---- Court constants (shotchart coord system; hoop at 0,0; baseline at y=0) ----
 const RIM_R = 7.5;
@@ -104,7 +110,29 @@ export default function ShotMap({ playerId, season }) {
   }, [playerId, season]);
 
   if (!playerId) return <div>Select a player to see a shot map.</div>;
-  if (!data) return <div>Loading shot map…</div>;
+  // after fetching:
+if (!data) return <div>Loading shot map…</div>;
+
+const startYear = Number((season || '').split('-')[0]);
+const eraHasShots = startYear >= 1996;
+// If you added has_shot_data in the API, prefer: const eraHasShots = data.has_shot_data !== false;
+
+if (!eraHasShots) {
+  return (
+    <div className="text-muted" style={{padding: 12}}>
+      No shot-location data is available league-wide before the 1996–97 season.
+      Try selecting {startYear < 1996 ? 'a later season' : 'another player/season'}.
+    </div>
+  );
+}
+
+if (!data.shots || data.shots.length === 0) {
+  return (
+    <div className="text-muted" style={{padding: 12}}>
+      No shot attempts recorded for this player in {season}.
+    </div>
+  );
+}
 
   const made = data.shots.filter(s => s.made);
   const missed = data.shots.filter(s => !s.made);

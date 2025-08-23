@@ -9,6 +9,8 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
   const [backMounted, setBackMounted] = useState(false);
   const faceRef = useRef(null);
   const [bio, setBio] = useState(null);
+  const startYear = Number((season || '').split('-')[0]);
+  const eraHasShots = startYear >= 1996;
 
 
   // ⬇️ reset flip whenever the player changes
@@ -68,9 +70,15 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
             <PlayerRadarChart playerId={playerId} season={season} playerName={playerName} />
           </div>
           <div className="pcard-footer">
-            <button className="pcard-btn" onClick={() => { setBackMounted(true); setFlipped(true); }}>
-              See back →
+            <button
+            className="pcard-btn"
+            disabled={!eraHasShots}
+            title={!eraHasShots ? 'No shot map data before 1996–97' : undefined}
+            onClick={() => { if (eraHasShots) { setBackMounted(true); setFlipped(true); } }}
+            >
+            See back →
             </button>
+
           </div>
         </div>
 

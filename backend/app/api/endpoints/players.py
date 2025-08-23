@@ -147,32 +147,50 @@ def _player_shots_for_season(player_id: str, season_fmt: str) -> pd.DataFrame:
     frames = sc.get_data_frames()
     return frames[0] if frames and len(frames) > 0 else pd.DataFrame()
 
+EARLIEST_SHOT_SEASON_START = 1996  # 1996-97
+
+def _season_start_year(season_fmt: str) -> int:
+    # "YYYY-YY" -> int(YYYY)
+    return int(season_fmt.split('-')[0])
+
 @router.get("/player_shots", response_model=PlayerShotsResponse)
-def get_player_shots(
-    player_id: str = Query(...),
-    season: Optional[str] = Query(None),
-):
+def get_player_shots(player_id: str = Query(...), season: Optional[str] = Query(None)):
     season = season or current_nba_season()
     season_fmt = format_season(season)
 
+    # Era check: no league shot locations prior to 1996–97
+    has_shot_data = _season_start_year(season_fmt) >= EARLIEST_SHOT_SEASON_START
+    if not has_shot_data:
+        return PlayerShotsResponse(
+            player_id=player_id,
+            season=season_fmt,
+            total=0, makes=0, attempts=0, shots=[],
+            # has_shot_data=False   # uncomment if your model includes this optional field
+        )
+
+    # Pull cached player shots for this season
     shots_df = _player_shots_for_season(player_id, season_fmt)
 
     if shots_df.empty:
         return PlayerShotsResponse(
-            player_id=player_id, season=season_fmt,
-            total=0, makes=0, attempts=0, shots=[]
+            player_id=player_id,
+            season=season_fmt,
+            total=0, makes=0, attempts=0, shots=[],
+            # has_shot_data=True
         )
 
+    # Keep only the columns we need (defensive against lib version changes)
     cols = ["LOC_X", "LOC_Y", "SHOT_MADE_FLAG", "SHOT_ZONE_BASIC", "SHOT_DISTANCE"]
     shots_df = shots_df[[c for c in cols if c in shots_df.columns]].copy()
 
+    # Build the response list
     shots: List[ShotEvent] = [
         ShotEvent(
             x=float(r.LOC_X),
             y=float(r.LOC_Y),
-            made=bool(r.SHOT_MADE_FLAG),
-            shot_zone=(r.SHOT_ZONE_BASIC if pd.notna(r.SHOT_ZONE_BASIC) else None),
-            shot_distance=(float(r.SHOT_DISTANCE) if pd.notna(r.SHOT_DISTANCE) else None),
+            made=bool(r.SHOT_MADE_FLAG) if "SHOT_MADE_FLAG" in shots_df.columns else False,
+            shot_zone=(r.SHOT_ZONE_BASIC if "SHOT_ZONE_BASIC" in shots_df.columns and pd.notna(r.SHOT_ZONE_BASIC) else None),
+            shot_distance=(float(r.SHOT_DISTANCE) if "SHOT_DISTANCE" in shots_df.columns and pd.notna(r.SHOT_DISTANCE) else None),
         )
         for _, r in shots_df.iterrows()
     ]
@@ -186,7 +204,8 @@ def get_player_shots(
         total=attempts,
         makes=makes,
         attempts=attempts,
-        shots=shots
+        shots=shots,
+        # has_shot_data=True
     )
 
 # -------------------------

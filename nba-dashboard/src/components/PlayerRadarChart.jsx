@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
 import axios from 'axios';
+
+// Let react-plotly.js find Plotly on window
+if (typeof window !== 'undefined' && !window.Plotly) {
+  window.Plotly = Plotly;
+}
+
 
 export default function PlayerRadarChart({ playerId, season, playerName = 'Player' }) {
   const [stats, setStats] = useState(null);

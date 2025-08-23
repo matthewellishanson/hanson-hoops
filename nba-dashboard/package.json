@@ -13,6 +13,7 @@
     "axios": "^1.11.0",
     "bootstrap": "^5.3.7",
     "plotly.js": "^3.0.3",
+    "plotly.js-dist-min": "^3.1.0",
     "react": "^19.1.0",
     "react-bootstrap": "^2.10.10",
     "react-dom": "^19.1.0",
