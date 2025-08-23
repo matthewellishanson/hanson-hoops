@@ -17,6 +17,7 @@ from datetime import datetime, date
 router = APIRouter()
 
 # Players endpoint
+# Caching player data
 @lru_cache(maxsize=1)
 def _all_players_norm():
     # ~5k records; cache in memory

@@ -67,7 +67,12 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
         <div className="pcard-face pcard-front">
           <HeaderBar bio={bio} fallbackName={playerName} onReplace={onReplace} />
           <div className="chart-container">
-            <PlayerRadarChart playerId={playerId} season={season} playerName={playerName} />
+            <PlayerRadarChart
+              key={`${playerId}-${season}`}   // 👈 force a fresh instance on season change
+              playerId={playerId}
+              season={season}
+              playerName={playerName}
+            />
           </div>
           <div className="pcard-footer">
             <button
