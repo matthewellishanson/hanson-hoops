@@ -43,7 +43,7 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
     async function load() {
       try {
         if (!playerId) return;
-        const res = await fetch(`http://localhost:8000/player_bio?player_id=${playerId}`);
+        const res = await fetch(`http://localhost:8000/player_bio?player_id=${playerId}&season=${encodeURIComponent(season)}`);
         if (!res.ok) throw new Error('bio fetch failed');
         const data = await res.json();
         if (alive) setBio(data);

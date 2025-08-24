@@ -1,57 +1,56 @@
-def _clamp01(x: float) -> float:
-    return 0.0 if x < 0 else (1.0 if x > 1 else x)
+import math
 
-def _window_to_100(value: float, lo: float, hi: float) -> float:
-    """Map [lo, hi] -> [0, 100], clamp outside."""
-    if hi <= lo:
+def _norm(value, cap):
+    """
+    Normalize a raw stat to 0..100 against a chosen cap.
+    - Handles None / NaN
+    - Clamps to [0, cap] so outliers don't exceed 100
+    """
+    if value is None:
         return 0.0
-    t = (value - lo) / (hi - lo)
-    return round(_clamp01(t) * 100.0, 1)
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if math.isnan(v) or math.isinf(v):
+        return 0.0
+    v = max(0.0, min(v, float(cap)))
+    return round((v / float(cap)) * 100.0, 1)
 
-def normalize_stats(raw):
+
+def normalize_stats(raw: dict) -> dict:
     """
-    raw is a dict with keys:
-      'PTS','REB','AST','BLK','STL','FG_PCT','FG3_PCT','FT_PCT'  (percentages in 0–100)
-    Returns values on 0–100 for the radar, tuned for visual balance.
+    Expected raw keys for the current radar:
+      - counting:  'PTS', 'REB', 'AST', 'BLK', 'STL'
+      - percents:  'FG_PCT', 'FG3_PCT' (already in percent units, e.g. 47.3)
+    Return keys:
+      - 'points', 'rebounds', 'assists', 'blocks', 'steals', 'fg_pct', 'fg3_pct'
     """
 
-    # Use realistic per-game ceilings (cross-season but not absurdly high)
-    # These are “good modern NBA” anchors; tweak as you like.
+    # Chosen ceilings:
+    # - Counting stats target “elite but realistic modern” ceilings (avoids Wilt skew but leaves headroom)
+    # - Percentages use realistic maxes so they don’t dwarf counting legs
     CEIL = {
-        'PTS': 70,   # elite ~35–37
-        'REB': 22.0,   # elite ~13–15
-        'AST': 16.5,   # elite ~10–12
-        'BLK': 8.0,    # elite ~3–3.5
-        'STL': 6.0,    # elite ~2–2.5
+        # counting (per game)
+        'PTS': 50,     # 35–37 elite, 50 = “super ceiling”
+        'REB': 18,     # 12–14 elite, 18 as ceiling
+        'AST': 12,     # 8–10 elite, 12 as ceiling
+        'BLK': 4.5,    # 3+ elite, 4.5 ceiling
+        'STL': 3.5,    # 2+ elite, 3.5 ceiling
+
+        # percentages (already in % units)
+        'FG_PCT': 65,  # elite FG% ceiling ~70 for bigs; 65 balances the chart visually
+        'FG3_PCT': 45, # elite 3P% ceiling ~45
+        # when I add FT:
+        # 'FT_PCT': 90,
     }
-
-    # Percentage windows mapped to 0–100 (typical starter-to-elite range)
-    # Values below lo → 0; above hi → 100 (clamped)
-    # These keep % legs from dwarfing counting stats.
-    WIN = {
-        'FG_PCT':  (40.0, 65.0),  # 40–65%
-        'FG3_PCT': (28.0, 45.0),  # 28–45%
-        'FT_PCT':  (65.0, 92.0),  # 65–92%
-    }
-
-    pts  = round(min(raw['PTS'] / CEIL['PTS'] * 100.0, 100.0), 1)
-    reb  = round(min(raw['REB'] / CEIL['REB'] * 100.0, 100.0), 1)
-    ast  = round(min(raw['AST'] / CEIL['AST'] * 100.0, 100.0), 1)
-    blk  = round(min(raw['BLK'] / CEIL['BLK'] * 100.0, 100.0), 1)
-    stl  = round(min(raw['STL'] / CEIL['STL'] * 100.0, 100.0), 1)
-
-    fg   = _window_to_100(raw['FG_PCT'],  *WIN['FG_PCT'])
-    fg3  = _window_to_100(raw['FG3_PCT'], *WIN['FG3_PCT'])
-    # Optional (if/when you add FT% to the radar):
-    ft   = _window_to_100(raw.get('FT_PCT', 0.0), *WIN['FT_PCT'])
 
     return {
-        'points':  pts,
-        'rebounds': reb,
-        'assists': ast,
-        'blocks':  blk,
-        'steals':  stl,
-        'fg_pct':  fg,
-        'fg3_pct': fg3,
-        'ft_pct':  ft,   # harmless if you don't use it yet
+        'points':  _norm(raw.get('PTS'), CEIL['PTS']),
+        'rebounds': _norm(raw.get('REB'), CEIL['REB']),
+        'assists':  _norm(raw.get('AST'), CEIL['AST']),
+        'blocks':   _norm(raw.get('BLK'), CEIL['BLK']),
+        'steals':   _norm(raw.get('STL'), CEIL['STL']),
+        'fg_pct':   _norm(raw.get('FG_PCT'),  CEIL['FG_PCT']),
+        'fg3_pct':  _norm(raw.get('FG3_PCT'), CEIL['FG3_PCT']),
     }

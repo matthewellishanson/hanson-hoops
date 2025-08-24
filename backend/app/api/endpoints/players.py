@@ -10,6 +10,7 @@ from models.schemas import (
 )
 from utils.seasons import format_season, current_nba_season
 from utils.normalize import normalize_stats
+from utils.dates import _age_at_season_start, _season_start_date
 from typing import List, Optional, Literal
 import pandas as pd
 from datetime import datetime, date
@@ -81,17 +82,6 @@ def _height_to_cm_str(height_str: str | None) -> str | None:
     except Exception:
         return None
 
-def _calc_age(birthdate_str: str | None) -> int | None:
-    # birthdate format: "1984-12-30T00:00:00"
-    if not birthdate_str:
-        return None
-    try:
-        d = datetime.fromisoformat(birthdate_str.replace("Z", "")).date()
-        today = date.today()
-        return today.year - d.year - ((today.month, today.day) < (d.month, d.day))
-    except Exception:
-        return None
-
 @lru_cache(maxsize=512)
 def _fetch_player_bio(player_id: str) -> dict | None:
     info = commonplayerinfo.CommonPlayerInfo(player_id=int(player_id)).get_data_frames()
@@ -100,17 +90,14 @@ def _fetch_player_bio(player_id: str) -> dict | None:
 
     df = info[0].iloc[0]
 
-    # Some columns vary by library version; use .get with defaults
     name = df.get("DISPLAY_FIRST_LAST") or df.get("DISPLAY_FI_LAST") or df.get("PLAYER_NAME")
     team = df.get("TEAM_NAME") or df.get("TEAM_ABBREVIATION")
     position = df.get("POSITION")
-    height = df.get("HEIGHT")              # e.g. "6-9"
-    weight = df.get("WEIGHT")              # string like "250"
+    height = df.get("HEIGHT")
+    weight = df.get("WEIGHT")
     jersey = df.get("JERSEY")
-    birthdate = df.get("BIRTHDATE")
-    age = _calc_age(birthdate)
+    birthdate = df.get("BIRTHDATE")  # <- keep raw string from API
 
-    # Headshot CDN (works for most current players)
     headshot_url = f"https://cdn.nba.com/headshots/nba/latest/260x190/{player_id}.png"
 
     return {
@@ -122,16 +109,31 @@ def _fetch_player_bio(player_id: str) -> dict | None:
         "height_cm": _height_to_cm_str(height),
         "weight_lbs": (int(weight) if isinstance(weight, (int, float, str)) and str(weight).isdigit() else None),
         "jersey": jersey if jersey not in ("", None, "0") else None,
-        "age": age,
+        "birthdate": birthdate,           # 👈 keep it so we can compute different ages on demand
         "headshot_url": headshot_url,
     }
 
 @router.get("/player_bio")
-def get_player_bio(player_id: str = Query(...)):
+def get_player_bio(
+    player_id: str = Query(...),
+    season: Optional[str] = Query(None, description="e.g. 2024 or 2024-25; if omitted, compute age as of today")
+):
     data = _fetch_player_bio(player_id)
     if not data:
         raise HTTPException(status_code=404, detail="Player bio not found")
-    return data
+
+    # compute age for the requested season (or today)
+    age = _age_at_season_start(data.get("birthdate"), season)
+
+    # return the bio with the computed age; keep birthdate if you want, or drop it
+    return {
+        **data,
+        "age": age,
+        "age_as_of": (
+            (_season_start_date(format_season(season)).isoformat() if season else date.today().isoformat())
+            if data.get("birthdate") else None
+        )
+    }
 
 # -------------------------
 # Cached player shot charts
