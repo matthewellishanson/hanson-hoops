@@ -13,19 +13,15 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
+useEffect(() => {
   (async () => {
-    try {
-      console.log('[Radar] fetching', { playerId, season });
-      const { data } = await axios.get('http://localhost:8000/player_profile_stats', {
-        params: { player_id: playerId, season },
-      });
-      setStats(data);
-    } catch (e) {
-      console.error('Error fetching player stats:', e);
-    }
+    console.log('[Radar] fetching', { playerId, season });  // keep this
+    const { data } = await axios.get('http://localhost:8000/player_profile_stats', {
+      params: { player_id: playerId, season },              // 👈 season must be sent
+    });
+    setStats(data);
   })();
-  }, [playerId, season]);    // 👈 season must be here
+}, [playerId, season]);
 
   if (!playerId) return <div>Select a player to see a chart.</div>;
 

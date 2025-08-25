@@ -1,13 +1,20 @@
 import React, { useState } from 'react';
 import PlayerDashboard from './pages/PlayerDashboard';
 
+function currentNbaSeasonLabel() {
+  const now = new Date();
+  const start = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1; // Sep=8-based
+  const endYY = String((start + 1) % 100).padStart(2, '0');
+  return `${start}-${endYY}`;
+}
+
 export default function App() {
   const [selectedPlayers, setSelectedPlayers] = useState([
     { playerId: '2544', playerName: 'LeBron James', season: '2023-24' },
   ]);
   const [showSelectorIndex, setShowSelectorIndex] = useState(null);
   // good default to use across the app (UI label can differ)
-  const DEFAULT_SEASON = '2023';  // backend will format "2023" -> "2023-24"
+  const DEFAULT_SEASON = currentNbaSeasonLabel();
 
   // When user selects a player in the selector:
   const updatePlayer = (idx, player) => {
@@ -16,7 +23,8 @@ export default function App() {
     next[idx] = {
       playerId: player.id,
       playerName: player.name,
-      season: player.season || prev[idx]?.season || '2023-24',  // prefer chosen season
+      // Prefer the season chosen in the selector; if somehow missing, use current season.
+      season: player.season || DEFAULT_SEASON,
     };
     return next;
   });

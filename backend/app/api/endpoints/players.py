@@ -241,19 +241,34 @@ def get_player_stats(
 # Profile averages
 # -------------------------
 @router.get("/player_profile_stats", response_model=PlayerProfileStats)
+@router.get("/player_profile_stats", response_model=PlayerProfileStats)
 def get_player_profile_stats(
     player_id: str = Query(...),
     season: Optional[str] = Query(None),
 ):
     try:
+        raw_season = season
         season = season or current_nba_season()
-        formatted_season = format_season(season)
+
+        # Force canonical "YYYY-YY" *before* calling nba_api
+        formatted_season = format_season(season).strip()
+        print(f"[profile_stats] player={player_id}  raw_season={raw_season!r}  formatted={formatted_season}")
 
         logs = playergamelog.PlayerGameLog(
             player_id=player_id,
             season=formatted_season,
             season_type_all_star="Regular Season"
         ).get_data_frames()[0]
+
+        # Helpful to see which dates the API actually returned
+        if not logs.empty:
+            print(
+                "[profile_stats] rows=", len(logs),
+                " first_date=", logs["GAME_DATE"].iloc[-1] if "GAME_DATE" in logs else "n/a",
+                " last_date=", logs["GAME_DATE"].iloc[0]  if "GAME_DATE" in logs else "n/a",
+            )
+        else:
+            print("[profile_stats] EMPTY logs for", formatted_season)
 
         if logs.empty:
             return PlayerProfileStats(

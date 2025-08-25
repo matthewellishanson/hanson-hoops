@@ -17,11 +17,9 @@ def format_season(year_or_season):
 def current_nba_season() -> str:
     """
     Returns the current NBA season label like '2024-25'.
-    Uses Oct 1 as the season turnover (preseason/training camp).
+    Uses Sept 9 as the season turnover (preseason/training camp).
     """
+    # Treat Sep (9) and later as new season start
     today = date.today()
-    year = today.year
-    # if before Oct, we’re still in the prior season’s label start year
-    start_year = year - 1 if today.month < 10 else year
-    end = str((start_year + 1) % 100).zfill(2)
-    return f"{start_year}-{end}"
+    start = today.year if today.month >= 9 else today.year - 1
+    return f"{start}-{str((start + 1) % 100).zfill(2)}"
