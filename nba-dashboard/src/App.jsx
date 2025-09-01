@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
 import PlayerDashboard from './pages/PlayerDashboard';
+// import TeamDashboard from './pages/TeamDashboard.jsx';
+
+// export default function App() {
+//   return <TeamDashboard />;
+// }
 
 function currentNbaSeasonLabel() {
   const now = new Date();
