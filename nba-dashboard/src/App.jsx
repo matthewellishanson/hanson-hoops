@@ -1,11 +1,38 @@
 import React, { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import PlayerDashboard from './pages/PlayerDashboard';
-// import TeamDashboard from './pages/TeamDashboard.jsx';
+import TeamDashboard from './pages/TeamDashboard.jsx';
 
-// export default function App() {
-//   return <TeamDashboard />;
-// }
+// Navigation component
+function Navigation() {
+  const location = useLocation();
+  
+  return (
+    <nav className="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+      <div className="container">
+        <Link className="navbar-brand" to="/">
+          NBA Dashboard
+        </Link>
+        <div className="navbar-nav">
+          <Link 
+            className={`nav-link ${location.pathname === '/players' ? 'active' : ''}`} 
+            to="/players"
+          >
+            Players
+          </Link>
+          <Link 
+            className={`nav-link ${location.pathname === '/teams' ? 'active' : ''}`} 
+            to="/teams"
+          >
+            Teams
+          </Link>
+        </div>
+      </div>
+    </nav>
+  );
+}
 
+// Helper function for current NBA season
 function currentNbaSeasonLabel() {
   const now = new Date();
   const start = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1; // Sep=8-based
@@ -13,27 +40,25 @@ function currentNbaSeasonLabel() {
   return `${start}-${endYY}`;
 }
 
-export default function App() {
+// Player Dashboard wrapper with state management
+function PlayerDashboardWrapper() {
   const [selectedPlayers, setSelectedPlayers] = useState([
     { playerId: '2544', playerName: 'LeBron James', season: '2023-24' },
   ]);
   const [showSelectorIndex, setShowSelectorIndex] = useState(null);
-  // good default to use across the app (UI label can differ)
   const DEFAULT_SEASON = currentNbaSeasonLabel();
 
-  // When user selects a player in the selector:
   const updatePlayer = (idx, player) => {
-  setSelectedPlayers(prev => {
-    const next = [...prev];
-    next[idx] = {
-      playerId: player.id,
-      playerName: player.name,
-      // Prefer the season chosen in the selector; if somehow missing, use current season.
-      season: player.season || DEFAULT_SEASON,
-    };
-    return next;
-  });
-  setShowSelectorIndex(null);
+    setSelectedPlayers(prev => {
+      const next = [...prev];
+      next[idx] = {
+        playerId: player.id,
+        playerName: player.name,
+        season: player.season || DEFAULT_SEASON,
+      };
+      return next;
+    });
+    setShowSelectorIndex(null);
   };
 
   const removePlayer = (idx) => {
@@ -45,7 +70,6 @@ export default function App() {
     setSelectedPlayers(prev => {
       if (prev.length >= 4) return prev;
       const next = [...prev, { playerId: '', playerName: '', season: DEFAULT_SEASON }];
-      // open selector for the new slot
       setShowSelectorIndex(next.length - 1);
       return next;
     });
@@ -60,5 +84,21 @@ export default function App() {
       removePlayer={removePlayer}
       onAddPlayer={onAddPlayer}
     />
+  );
+}
+
+// Main App component with routing
+export default function App() {
+  return (
+    <Router>
+      <div className="min-vh-100 bg-light">
+        <Navigation />
+        <Routes>
+          <Route path="/" element={<PlayerDashboardWrapper />} />
+          <Route path="/players" element={<PlayerDashboardWrapper />} />
+          <Route path="/teams" element={<TeamDashboard />} />
+        </Routes>
+      </div>
+    </Router>
   );
 }
