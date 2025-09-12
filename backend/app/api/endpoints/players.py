@@ -2,15 +2,15 @@ from fastapi import APIRouter, Query, HTTPException
 from functools import lru_cache
 from nba_api.stats.endpoints import playergamelog, shotchartdetail, commonplayerinfo
 from nba_api.stats.static import players as static_players
-from models.schemas import (
+from app.models.schemas import (
     PlayerProfileStats,
     GameStat,
     PlayerShotsResponse,
     ShotEvent,
 )
-from utils.seasons import format_season, current_nba_season
-from utils.normalize import normalize_stats
-from utils.dates import _age_at_season_start, _season_start_date
+from app.utils.seasons import format_season, current_nba_season
+from app.utils.normalize import normalize_stats
+from app.utils.dates import _age_at_season_start, _season_start_date
 from typing import List, Optional, Literal
 import pandas as pd
 from datetime import datetime, date

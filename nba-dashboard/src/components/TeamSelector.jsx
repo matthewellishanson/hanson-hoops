@@ -4,7 +4,11 @@ import axios from 'axios';
 // Season helpers (same pattern you used elsewhere)
 function currentNbaSeasonStartYear() {
   const now = new Date();
-  return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+  // Use October 15th as the season start date
+  if (now.getMonth() > 9 || (now.getMonth() === 9 && now.getDate() >= 15)) {
+    return now.getFullYear();
+  }
+  return now.getFullYear() - 1;
 }
 function toSeasonLabel(startYear) {
   const endYY = String((startYear + 1) % 100).padStart(2, '0');

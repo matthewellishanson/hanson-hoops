@@ -3,9 +3,12 @@ import axios from 'axios';
 
 // === local helpers (no import needed) ===
 function currentNbaSeasonStartYear() {
-  // Treat Sep (9) and later as the start of a new NBA season
+  // Use October 15th as the start of a new NBA season
   const now = new Date();
-  return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+  if (now.getMonth() > 9 || (now.getMonth() === 9 && now.getDate() >= 15)) {
+    return now.getFullYear();
+  }
+  return now.getFullYear() - 1;
 }
 
 function toSeasonLabel(startYear) {

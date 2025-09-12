@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.endpoints import players, teams  # adjust import if needed
+from app.api.endpoints import players, teams
 
 app = FastAPI()
 

@@ -32,7 +32,7 @@ def _age_at_season_start(birthdate_str: str | None, season: str | None) -> int |
         return None
     if season:
         # format_season lets you pass “2024” or “2024-25”
-        from utils.seasons import format_season
+        from app.utils.seasons import format_season
         season_fmt = format_season(season)
         asof = _season_start_date(season_fmt)
     else:
