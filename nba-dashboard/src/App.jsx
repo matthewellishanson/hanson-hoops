@@ -35,7 +35,13 @@ function Navigation() {
 // Helper function for current NBA season
 function currentNbaSeasonLabel() {
   const now = new Date();
-  const start = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1; // Sep=8-based
+  // Use October 15th as the season start date (same as other components)
+  let start;
+  if (now.getMonth() > 9 || (now.getMonth() === 9 && now.getDate() >= 15)) {
+    start = now.getFullYear();
+  } else {
+    start = now.getFullYear() - 1;
+  }
   const endYY = String((start + 1) % 100).padStart(2, '0');
   return `${start}-${endYY}`;
 }

@@ -2,8 +2,8 @@ from fastapi import APIRouter, Query, HTTPException
 from functools import lru_cache
 from nba_api.stats.endpoints import shotchartdetail, teamgamelog, teamdashboardbygeneralsplits
 from nba_api.stats.static import teams as static_teams
-from app.utils.seasons import format_season, current_nba_season
-from app.utils.normalize import normalize_stats
+from ...utils.seasons import format_season, current_nba_season
+from ...utils.normalize import normalize_stats
 from typing import List, Optional, Literal
 import pandas as pd
 
