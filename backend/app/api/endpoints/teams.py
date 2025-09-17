@@ -285,54 +285,35 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
     df = _league_shots_for_season(season_fmt)
 
     if df.empty:
-        return {"season": season_fmt, "team_id": team_id, "shots_for": [], "shots_against": []}
+        return {
+            "season": season_fmt, "team_id": team_id,
+            "shots_for": [], "shots_against": [],
+            "summary_for": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
+            "summary_against": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
+        }
 
-    # columns we’ll keep if present
+    # keep columns we need (add SHOT_TYPE so we can compute 3P%)
     cols = [
         "LOC_X","LOC_Y","SHOT_MADE_FLAG","TEAM_ID",
-        "SHOT_ZONE_BASIC","SHOT_DISTANCE","HTM","VTM"
+        "SHOT_ZONE_BASIC","SHOT_DISTANCE","SHOT_TYPE","HTM","VTM"
     ]
     df = df[[c for c in cols if c in df.columns]].copy()
 
-    # --- figure out the team’s tri-code (abbr) from its id ---
+    # --- lookup team abbreviation ---
     teams_data = static_teams.get_teams()
     team_row = next((t for t in teams_data if int(t["id"]) == int(team_id)), None)
     team_abbr = (team_row or {}).get("abbreviation")
-    if not team_abbr:
-        # fail soft: fall back to only 'shots_for'
-        shots_for_df = df[df["TEAM_ID"] == int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
-        def to_events(frame: pd.DataFrame):
-            if frame.empty: return []
-            return [
-                {
-                    "x": float(r["LOC_X"]), "y": float(r["LOC_Y"]),
-                    "made": bool(r["SHOT_MADE_FLAG"]),
-                    "shot_zone": (r["SHOT_ZONE_BASIC"] if pd.notna(r.get("SHOT_ZONE_BASIC")) else None),
-                    "shot_distance": (float(r["SHOT_DISTANCE"]) if pd.notna(r.get("SHOT_DISTANCE")) else None),
-                }
-                for _, r in frame.iterrows()
-            ]
-        return {
-            "season": season_fmt, "team_id": team_id,
-            "shots_for": to_events(shots_for_df), "shots_against": []
-        }
 
-    # --- build boolean mask: games involving this team (by HTM/VTM) ---
-    has_htm = "HTM" in df.columns
-    has_vtm = "VTM" in df.columns
-    if has_htm and has_vtm:
-        # normalize case just in case
+    # filter to games that involve this team using HTM/VTM (if present)
+    if "HTM" in df.columns and "VTM" in df.columns and team_abbr:
         df["HTM"] = df["HTM"].astype(str).str.upper()
         df["VTM"] = df["VTM"].astype(str).str.upper()
-        involves_team = (df["HTM"] == team_abbr) | (df["VTM"] == team_abbr)
-        df_team_games = df[involves_team].copy()
-    else:
-        # if HTM/VTM missing somehow, fall back to whole df (less accurate)
-        df_team_games = df
+        involves = (df["HTM"] == team_abbr) | (df["VTM"] == team_abbr)
+        df = df[involves].copy()
 
-    # shots by this team vs by opponent
-    shots_for_df = df_team_games[df_team_games["TEAM_ID"] == int(team_id)] if "TEAM_ID" in df_team_games.columns else pd.DataFrame()
-    shots_against_df = df_team_games[df_team_games["TEAM_ID"] != int(team_id)] if "TEAM_ID" in df_team_games.columns else pd.DataFrame()
+    # split
+    shots_for_df = df[df["TEAM_ID"] == int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
+    shots_against_df = df[df["TEAM_ID"] != int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
 
     def to_events(frame: pd.DataFrame) -> List[dict]:
         if frame.empty: return []
@@ -347,12 +328,35 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
             for _, r in frame.iterrows()
         ]
 
+    def summarize(frame: pd.DataFrame) -> dict:
+        if frame.empty:
+            return {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0}
+        fga = int(len(frame))
+        fgm = int(frame["SHOT_MADE_FLAG"].fillna(0).astype(int).sum())
+        fg_pct = round((fgm / fga) * 100.0, 1) if fga else 0.0
+
+        # detect threes via SHOT_TYPE if available (e.g., "3PT Field Goal")
+        if "SHOT_TYPE" in frame.columns:
+            threes = frame[frame["SHOT_TYPE"].astype(str).str.startswith("3PT", na=False)]
+        else:
+            # crude fallback: treat >= 23 ft as a 3 (NBA arc ~23'9" above break)
+            threes = frame[frame.get("SHOT_DISTANCE", pd.Series(dtype=float)) >= 23]
+
+        fg3a = int(len(threes))
+        fg3m = int(threes["SHOT_MADE_FLAG"].fillna(0).astype(int).sum()) if fg3a else 0
+        fg3_pct = round((fg3m / fg3a) * 100.0, 1) if fg3a else 0.0
+
+        return {"fg_pct": fg_pct, "fgm": fgm, "fga": fga, "fg3_pct": fg3_pct, "fg3m": fg3m, "fg3a": fg3a}
+
     return {
         "season": season_fmt,
         "team_id": team_id,
         "shots_for": to_events(shots_for_df),
         "shots_against": to_events(shots_against_df),
+        "summary_for": summarize(shots_for_df),
+        "summary_against": summarize(shots_against_df),
     }
+
 
 
 # debug only

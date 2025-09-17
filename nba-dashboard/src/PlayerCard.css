@@ -136,4 +136,45 @@
 
 @media (max-width: 576px) { .pcard { height: 380px; } }
 
+/* Two maps side-by-side on desktop, stacked on mobile */
+.shotmaps-grid {
+  display: grid;
+  gap: 8px;
+  height: 100%;
+}
 
+@media (min-width: 768px) {
+  .shotmaps-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 767px) {
+  .shotmaps-grid { grid-template-columns: 1fr; }
+}
+
+.map-wrap {
+  position: relative;
+  min-height: 100%;
+}
+
+/* bold, colorful season summary pills */
+.map-pill {
+  position: absolute;
+  z-index: 3;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,.15);
+  user-select: none;
+}
+
+.map-pill.for {
+  background: #0ea5e9; /* sky-500-ish */
+  color: #fff;
+  top: 8px; left: 8px;
+}
+
+.map-pill.against {
+  background: #ef4444; /* red-500-ish */
+  color: #fff;
+  top: 8px; right: 8px;
+}
