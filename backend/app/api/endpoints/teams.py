@@ -352,3 +352,18 @@ def debug_leaguedashteamstats(
         "errors": {"base": team_err, "opponent": opp_err},
     }
 
+@router.get("/debug/team_shots_columns")
+def debug_team_shots_columns(season: str = Query(...)):
+    season_fmt = format_season(season)
+    df = _league_shots_for_season(season_fmt)
+    cols = list(df.columns) if not df.empty else []
+    sample = df.head(3).to_dict(orient="records") if not df.empty else []
+    return {
+        "season": season_fmt,
+        "empty": df.empty,
+        "cols": cols,
+        "has_TEAM_ID": "TEAM_ID" in cols,
+        "has_OPPONENT_TEAM_ID": "OPPONENT_TEAM_ID" in cols,
+        "sample": sample,
+    }
+
