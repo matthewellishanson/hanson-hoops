@@ -44,6 +44,7 @@ export default function TeamShotMap({ teamId, season }) {
       try {
         const res = await axios.get('http://localhost:8000/team_shots', { params: { team_id: teamId, season } });
         if (alive) setData(res.data);
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       } catch (e) {
         console.error('Error fetching team shots:', e);
         if (alive) setData({
@@ -51,6 +52,7 @@ export default function TeamShotMap({ teamId, season }) {
           summary_for: { fg_pct: 0, fgm: 0, fga: 0, fg3_pct: 0, fg3m: 0, fg3a: 0 },
           summary_against: { fg_pct: 0, fgm: 0, fga: 0, fg3_pct: 0, fg3m: 0, fg3a: 0 },
         });
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       }
     })();
     return () => { alive = false; };
@@ -74,12 +76,13 @@ export default function TeamShotMap({ teamId, season }) {
     showlegend: false,
     xaxis: { range: [-250, 250], visible: false, zeroline: false, showgrid: false, constrain: 'domain' },
     yaxis: { range: [-50, 500],  visible: false, zeroline: false, showgrid: false, scaleanchor: 'x', scaleratio: 1 },
-    margin: { t: 8, l: 8, r: 8, b: 8 },
+    margin: { t: 4, l: 4, r: 4, b: 4 },      // tighter than before
     shapes: courtShapesWithoutArc(),
     paper_bgcolor: 'white',
     plot_bgcolor: 'white',
     autosize: true,
   };
+
 
   const pill = (cls, title, s) => (
     <div className={`map-pill ${cls}`}>
@@ -94,7 +97,7 @@ export default function TeamShotMap({ teamId, season }) {
   );
 
   return (
-    <div className="shotmaps-grid">
+    <div className="shotmaps-grid" style={{ height: '100%' }}>
       {/* FOR */}
       <div className="map-wrap">
         {pill('for', 'Shots For', data.summary_for || {fg_pct:0,fgm:0,fga:0,fg3_pct:0,fg3m:0,fg3a:0})}
@@ -120,4 +123,5 @@ export default function TeamShotMap({ teamId, season }) {
       </div>
     </div>
   );
+
 }
