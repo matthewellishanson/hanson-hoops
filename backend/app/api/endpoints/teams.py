@@ -287,11 +287,52 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
     if df.empty:
         return {"season": season_fmt, "team_id": team_id, "shots_for": [], "shots_against": []}
 
-    cols = ["LOC_X","LOC_Y","SHOT_MADE_FLAG","TEAM_ID","OPPONENT_TEAM_ID","SHOT_ZONE_BASIC","SHOT_DISTANCE"]
+    # columns we’ll keep if present
+    cols = [
+        "LOC_X","LOC_Y","SHOT_MADE_FLAG","TEAM_ID",
+        "SHOT_ZONE_BASIC","SHOT_DISTANCE","HTM","VTM"
+    ]
     df = df[[c for c in cols if c in df.columns]].copy()
 
-    shots_for_df = df[df["TEAM_ID"] == team_id] if "TEAM_ID" in df.columns else pd.DataFrame()
-    shots_against_df = df[df["OPPONENT_TEAM_ID"] == team_id] if "OPPONENT_TEAM_ID" in df.columns else pd.DataFrame()
+    # --- figure out the team’s tri-code (abbr) from its id ---
+    teams_data = static_teams.get_teams()
+    team_row = next((t for t in teams_data if int(t["id"]) == int(team_id)), None)
+    team_abbr = (team_row or {}).get("abbreviation")
+    if not team_abbr:
+        # fail soft: fall back to only 'shots_for'
+        shots_for_df = df[df["TEAM_ID"] == int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
+        def to_events(frame: pd.DataFrame):
+            if frame.empty: return []
+            return [
+                {
+                    "x": float(r["LOC_X"]), "y": float(r["LOC_Y"]),
+                    "made": bool(r["SHOT_MADE_FLAG"]),
+                    "shot_zone": (r["SHOT_ZONE_BASIC"] if pd.notna(r.get("SHOT_ZONE_BASIC")) else None),
+                    "shot_distance": (float(r["SHOT_DISTANCE"]) if pd.notna(r.get("SHOT_DISTANCE")) else None),
+                }
+                for _, r in frame.iterrows()
+            ]
+        return {
+            "season": season_fmt, "team_id": team_id,
+            "shots_for": to_events(shots_for_df), "shots_against": []
+        }
+
+    # --- build boolean mask: games involving this team (by HTM/VTM) ---
+    has_htm = "HTM" in df.columns
+    has_vtm = "VTM" in df.columns
+    if has_htm and has_vtm:
+        # normalize case just in case
+        df["HTM"] = df["HTM"].astype(str).str.upper()
+        df["VTM"] = df["VTM"].astype(str).str.upper()
+        involves_team = (df["HTM"] == team_abbr) | (df["VTM"] == team_abbr)
+        df_team_games = df[involves_team].copy()
+    else:
+        # if HTM/VTM missing somehow, fall back to whole df (less accurate)
+        df_team_games = df
+
+    # shots by this team vs by opponent
+    shots_for_df = df_team_games[df_team_games["TEAM_ID"] == int(team_id)] if "TEAM_ID" in df_team_games.columns else pd.DataFrame()
+    shots_against_df = df_team_games[df_team_games["TEAM_ID"] != int(team_id)] if "TEAM_ID" in df_team_games.columns else pd.DataFrame()
 
     def to_events(frame: pd.DataFrame) -> List[dict]:
         if frame.empty: return []
@@ -312,6 +353,7 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
         "shots_for": to_events(shots_for_df),
         "shots_against": to_events(shots_against_df),
     }
+
 
 # debug only
 @router.get("/_debug/leaguedashteamstats")
