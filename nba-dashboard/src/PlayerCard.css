@@ -185,13 +185,13 @@
 }
 
 .map-pill.for {
-  background: #0ea5e9;
+  background: #07bed3;
   color: #fff;
   top: 8px; left: 8px;
 }
 
 .map-pill.against {
-  background: #ef4444;
+  background: #e63e5a;
   color: #fff;
   top: 8px; right: 8px;
 }

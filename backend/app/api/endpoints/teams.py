@@ -13,6 +13,60 @@ from ...utils.normalize import normalize_stats
 
 router = APIRouter()
 
+# opponent normalization
+
+# ---------------------------
+def _pct100(x):
+    try:
+        f = float(x)
+        return f * 100.0 if 0.0 <= f <= 1.0 else f
+    except Exception:
+        return 0.0
+
+@lru_cache(maxsize=16)
+def _opp_baselines(season_fmt: str) -> dict:
+    """
+    Per-season league min/max for opponent metrics.
+    Returns {} on failure (so we can fall back).
+    """
+    try:
+        df = _ldt_compat(
+            season=season_fmt,
+            season_type="Regular Season",
+            per_mode="PerGame",
+            measure="Opponent",
+        )
+        if df is None or df.empty:
+            return {}
+
+        # Ensure 0..100 units for pcts
+        opp_pts = pd.to_numeric(df.get("OPP_PTS"), errors="coerce").fillna(0.0)
+        opp_fg  = pd.to_numeric(df.get("OPP_FG_PCT"), errors="coerce").fillna(0.0)
+        opp_3p  = pd.to_numeric(df.get("OPP_FG3_PCT"), errors="coerce").fillna(0.0)
+        if opp_fg.max() <= 1.0:  opp_fg  = opp_fg  * 100.0
+        if opp_3p.max() <= 1.0:  opp_3p  = opp_3p  * 100.0
+
+        return {
+            "PTS":     (float(opp_pts.min()), float(opp_pts.max())),
+            "FG_PCT":  (float(opp_fg.min()),  float(opp_fg.max())),
+            "FG3_PCT": (float(opp_3p.min()),  float(opp_3p.max())),
+        }
+    except Exception:
+        return {}
+
+def _minmax_inv(value: float, mn: float, mx: float) -> float:
+    """
+    score = (max - value) / (max - min) * 100, clamped and rounded.
+    Lower allowed -> higher score.
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if mx <= mn:
+        return 0.0
+    v = min(max(v, mn), mx)
+    return round(((mx - v) / (mx - mn)) * 100.0, 1)
 # -------------------------
 # Compatibility shim for nba_api
 # -------------------------
@@ -131,21 +185,78 @@ def get_team_bio(
 # -------------------------
 # Team Profile Stats
 # -------------------------
+# --- helper: pull opponent table + compute season baselines ---
+@lru_cache(maxsize=16)
+def _opp_baselines(season_fmt: str) -> dict:
+    """
+    Return per-season min/max for opponent metrics (used to scale defense).
+    Output:
+      {
+        'PTS': (min_pts, max_pts),
+        'FG_PCT': (min_fg, max_fg),
+        'FG3_PCT': (min_3p, max_3p),
+      }
+    Values are in *percent units* for pct metrics (0–100).
+    """
+    try:
+        df_opp = _ldt_compat(
+            season=season_fmt,
+            season_type="Regular Season",
+            per_mode="PerGame",
+            measure="Opponent"
+        )
+        if df_opp is None or df_opp.empty:
+            raise ValueError("opp table empty")
+
+        # Ensure % columns are in 0..100 (nba_api may return 0..1)
+        def pct100(s):
+            s = pd.to_numeric(s, errors="coerce")
+            s = s.fillna(0.0)
+            # If max <= 1, it’s ratios → convert
+            return (s * 100.0) if s.max() <= 1.0 else s
+
+        opp_pts  = pd.to_numeric(df_opp.get("OPP_PTS"), errors="coerce").fillna(0.0)
+        opp_fg   = pct100(df_opp.get("OPP_FG_PCT"))
+        opp_fg3  = pct100(df_opp.get("OPP_FG3_PCT"))
+
+        return {
+            "PTS":     (float(opp_pts.min()), float(opp_pts.max())),
+            "FG_PCT":  (float(opp_fg.min()),  float(opp_fg.max())),
+            "FG3_PCT": (float(opp_fg3.min()), float(opp_fg3.max())),
+        }
+    except Exception:
+        # signal fallback by returning {}
+        return {}
+
+
+def _minmax_inv(value: float, mn: float, mx: float) -> float:
+    """
+    Map value to 0..100 using (mx - v)/(mx - mn).
+    Clamps safely and rounds to 1dp.
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if mx <= mn:
+        return 0.0
+    v = min(max(v, mn), mx)
+    return round(((mx - v) / (mx - mn)) * 100.0, 1)
+
 @router.get("/team_profile_stats")
 def get_team_profile_stats(
     team_id: str = Query(...),
     season: Optional[str] = Query(None),
 ):
     """
-    Returns normalized (0–100) team profile stats + raw per-game numbers,
-    and an 'opponent' view (normalized as 'lower is better' -> higher score when allowing less).
-    Uses TeamDashboardByGeneralSplits to avoid fragile kwarg names on LeagueDashTeamStats.
+    Returns normalized team profile (0–100) + raw per-game numbers.
+    - Team legs use your normalize_stats(kind='team') caps.
+    - Opponent legs use dynamic per-season league min/max (defense → higher=better).
     """
     try:
         season = season or current_nba_season()
         season_fmt = format_season(season)
 
-        # Pull per-game dashboards (team + opponent)
         dash = teamdashboardbygeneralsplits.TeamDashboardByGeneralSplits(
             team_id=int(team_id),
             season=season_fmt,
@@ -155,17 +266,14 @@ def get_team_profile_stats(
 
         team_df = dash[0] if len(dash) > 0 else pd.DataFrame()
         opp_df  = dash[1] if len(dash) > 1 else pd.DataFrame()
-
         if team_df.empty:
-            print("[team_profile_stats] Team dashboard empty for", team_id, season_fmt)
             raise ValueError("empty team dashboard")
 
-        # ---- TEAM (per game) ----
+        # --- TEAM (per-game) ---
         t = team_df.iloc[0]
-        # Some frames use pct in 0..1; others already in percent. Detect & scale once.
-        def pct_to_100(v):
+        def pct100(x):
             try:
-                f = float(v)
+                f = float(x)
                 return f * 100.0 if 0.0 <= f <= 1.0 else f
             except Exception:
                 return 0.0
@@ -175,36 +283,54 @@ def get_team_profile_stats(
         team_ast = float(t.get("AST", 0))
         team_blk = float(t.get("BLK", 0))
         team_stl = float(t.get("STL", 0))
-        team_fg_pct  = pct_to_100(t.get("FG_PCT", 0))
-        team_fg3_pct = pct_to_100(t.get("FG3_PCT", 0))
+        team_fg  = pct100(t.get("FG_PCT", 0))
+        team_3p  = pct100(t.get("FG3_PCT", 0))
 
         norm_team = normalize_stats({
-            "PTS": team_pts, "REB": team_reb, "AST": team_ast, "BLK": team_blk, "STL": team_stl,
-            "FG_PCT": team_fg_pct, "FG3_PCT": team_fg3_pct,
-        })
+            "TEAM_PTS": team_pts,
+            "TEAM_REB": team_reb,
+            "TEAM_AST": team_ast,
+            "TEAM_BLK": team_blk,
+            "TEAM_STL": team_stl,
+            "TEAM_FG_PCT":  team_fg,
+            "TEAM_FG3_PCT": team_3p,
+        }, kind="team")
 
-        # ---- OPPONENT (per game, invert so 'better defense' -> higher score) ----
-        # Prefer OPP_* columns if present on team_df; otherwise, read plain columns from opp_df.
-        if any(col.startswith("OPP_") for col in team_df.columns):
+        # --- OPPONENT raw (prefer OPP_* on team_df, else opp_df) ---
+        # --- OPPONENT raw (prefer OPP_* on team_df, else opp_df) ---
+        if any(c.startswith("OPP_") for c in team_df.columns):
             raw_opp_pts = float(t.get("OPP_PTS", 0))
-            raw_opp_fg  = pct_to_100(t.get("OPP_FG_PCT", 0))
-            raw_opp_3p  = pct_to_100(t.get("OPP_FG3_PCT", 0))
+            raw_opp_fg  = _pct100(t.get("OPP_FG_PCT", 0))
+            raw_opp_3p  = _pct100(t.get("OPP_FG3_PCT", 0))
         elif not opp_df.empty:
             o = opp_df.iloc[0]
             raw_opp_pts = float(o.get("PTS", 0))
-            raw_opp_fg  = pct_to_100(o.get("FG_PCT", 0))
-            raw_opp_3p  = pct_to_100(o.get("FG3_PCT", 0))
+            raw_opp_fg  = _pct100(o.get("FG_PCT", 0))
+            raw_opp_3p  = _pct100(o.get("FG3_PCT", 0))
         else:
             raw_opp_pts = raw_opp_fg = raw_opp_3p = 0.0
 
-        # Invert opponent numbers (lower allowed -> higher score)
-        OPP_CEIL = {"PTS": 130.0, "FG_PCT": 60.0, "FG3_PCT": 45.0}
-        def inv(v, cap):
-            v = max(0.0, min(float(v or 0.0), cap))
-            return round((1.0 - (v / cap)) * 100.0, 1)
+        # --- Opponent normalization: dynamic min/max per season ---
+        baselines = _opp_baselines(season_fmt)
+        if baselines:
+            opp_points = _minmax_inv(raw_opp_pts, *baselines["PTS"])
+            opp_fg_pct = _minmax_inv(raw_opp_fg,  *baselines["FG_PCT"])
+            opp_fg3_pct= _minmax_inv(raw_opp_3p,  *baselines["FG3_PCT"])
+            scale_hint = "dynamic"
+        else:
+            # fallback to fixed caps if baselines unavailable
+            OPP_CAP = {"PTS": 130.0, "FG_PCT": 60.0, "FG3_PCT": 45.0}
+            def inv_cap(v, cap):
+                v = max(0.0, min(float(v or 0.0), cap))
+                return round((1.0 - (v / cap)) * 100.0, 1)
+            opp_points = inv_cap(raw_opp_pts, OPP_CAP["PTS"])
+            opp_fg_pct = inv_cap(raw_opp_fg,  OPP_CAP["FG_PCT"])
+            opp_fg3_pct= inv_cap(raw_opp_3p,  OPP_CAP["FG3_PCT"])
+            scale_hint = "cap"
+
 
         return {
-            # normalized (team)
+            # team (normalized + raw)
             "points":   norm_team["points"],
             "rebounds": norm_team["rebounds"],
             "assists":  norm_team["assists"],
@@ -213,24 +339,26 @@ def get_team_profile_stats(
             "fg_pct":   norm_team["fg_pct"],
             "fg3_pct":  norm_team["fg3_pct"],
 
-            # raw (team)
             "raw_points": round(team_pts, 1),
             "raw_rebounds": round(team_reb, 1),
             "raw_assists": round(team_ast, 1),
             "raw_blocks": round(team_blk, 1),
             "raw_steals": round(team_stl, 1),
-            "raw_fg_pct": round(team_fg_pct, 1),
-            "raw_fg3_pct": round(team_fg3_pct, 1),
+            "raw_fg_pct": round(team_fg, 1),
+            "raw_fg3_pct": round(team_3p, 1),
 
-            # normalized (opponent — inverted)
-            "opp_points": inv(raw_opp_pts, OPP_CEIL["PTS"]),
-            "opp_fg_pct": inv(raw_opp_fg,  OPP_CEIL["FG_PCT"]),
-            "opp_fg3_pct":inv(raw_opp_3p,  OPP_CEIL["FG3_PCT"]),
+            # opponent (normalized with dynamic per-season scale) + raw
+            "opp_points": opp_points,
+            "opp_fg_pct": opp_fg_pct,
+            "opp_fg3_pct": opp_fg3_pct,
 
-            # raw (opponent)
             "raw_opp_points": round(raw_opp_pts, 1),
             "raw_opp_fg_pct": round(raw_opp_fg, 1),
             "raw_opp_fg3_pct": round(raw_opp_3p, 1),
+
+            # optional metadata for debugging / transparency
+            "opponent_scale": scale_hint,
+            "season": season_fmt,
         }
 
     except Exception as e:
@@ -240,7 +368,9 @@ def get_team_profile_stats(
             "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,"raw_fg_pct":0,"raw_fg3_pct":0,
             "opp_points":0,"opp_fg_pct":0,"opp_fg3_pct":0,
             "raw_opp_points":0,"raw_opp_fg_pct":0,"raw_opp_fg3_pct":0,
+            "opponent_scale":"error"
         }
+
 
 
 
