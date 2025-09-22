@@ -4,8 +4,14 @@ from typing import List, Optional, Literal
 import time
 import pandas as pd
 import logging
+import inspect
 from requests.exceptions import ReadTimeout
-from nba_api.stats.endpoints import shotchartdetail, leaguedashteamstats, teamdashboardbygeneralsplits, teamgamelog
+from nba_api.stats.endpoints import (
+    shotchartdetail,
+    leaguedashteamstats,
+    teamdashboardbygeneralsplits,
+    teamgamelog,
+)
 from nba_api.stats.static import teams as static_teams
 from ...utils.seasons import format_season, current_nba_season
 from ...utils.normalize import normalize_stats
@@ -13,51 +19,23 @@ from ...utils.normalize import normalize_stats
 
 router = APIRouter()
 
-# opponent normalization
-
 # ---------------------------
+# Helpers
+# ---------------------------
+
 def _pct100(x):
+    """Accept 0–1 or 0–100 and return % in 0–100."""
     try:
         f = float(x)
         return f * 100.0 if 0.0 <= f <= 1.0 else f
     except Exception:
         return 0.0
 
-@lru_cache(maxsize=16)
-def _opp_baselines(season_fmt: str) -> dict:
-    """
-    Per-season league min/max for opponent metrics.
-    Returns {} on failure (so we can fall back).
-    """
-    try:
-        df = _ldt_compat(
-            season=season_fmt,
-            season_type="Regular Season",
-            per_mode="PerGame",
-            measure="Opponent",
-        )
-        if df is None or df.empty:
-            return {}
-
-        # Ensure 0..100 units for pcts
-        opp_pts = pd.to_numeric(df.get("OPP_PTS"), errors="coerce").fillna(0.0)
-        opp_fg  = pd.to_numeric(df.get("OPP_FG_PCT"), errors="coerce").fillna(0.0)
-        opp_3p  = pd.to_numeric(df.get("OPP_FG3_PCT"), errors="coerce").fillna(0.0)
-        if opp_fg.max() <= 1.0:  opp_fg  = opp_fg  * 100.0
-        if opp_3p.max() <= 1.0:  opp_3p  = opp_3p  * 100.0
-
-        return {
-            "PTS":     (float(opp_pts.min()), float(opp_pts.max())),
-            "FG_PCT":  (float(opp_fg.min()),  float(opp_fg.max())),
-            "FG3_PCT": (float(opp_3p.min()),  float(opp_3p.max())),
-        }
-    except Exception:
-        return {}
 
 def _minmax_inv(value: float, mn: float, mx: float) -> float:
     """
-    score = (max - value) / (max - min) * 100, clamped and rounded.
-    Lower allowed -> higher score.
+    Map value to 0..100 using (mx - v)/(mx - mn).
+    Clamps safely and rounds to 1dp.
     """
     try:
         v = float(value)
@@ -67,41 +45,151 @@ def _minmax_inv(value: float, mn: float, mx: float) -> float:
         return 0.0
     v = min(max(v, mn), mx)
     return round(((mx - v) / (mx - mn)) * 100.0, 1)
-# -------------------------
-# Compatibility shim for nba_api
-# -------------------------
 
+
+def _team_pg_from_gamelog(team_id: int, season_fmt: str) -> dict:
+    """
+    Compute per-game from TeamGameLog by rolling up game totals.
+    Returns floats (not rounded) so caller can round as desired.
+
+    Keys returned:
+      PTS, REB, AST, STL, BLK, FG_PCT, FG3_PCT,
+      OPP_PTS (if present), OPP_FG_PCT/OPP_FG3_PCT (if we can compute)
+    """
+    try:
+        # Build kwargs robustly across nba_api versions (league_id vs league_id_nullable vs none)
+        gl_kwargs = dict(
+            team_id=team_id,
+            season=season_fmt,
+            season_type_all_star="Regular Season",
+        )
+        try:
+            sig = inspect.signature(teamgamelog.TeamGameLog.__init__)
+        except (TypeError, ValueError):
+            sig = None
+
+        if sig is not None:
+            params = sig.parameters
+            if "league_id_nullable" in params:
+                gl_kwargs["league_id_nullable"] = "00"
+            elif "league_id" in params:
+                gl_kwargs["league_id"] = "00"
+
+        gl = teamgamelog.TeamGameLog(**gl_kwargs).get_data_frames()[0]
+
+        if "TEAM_ID" in gl.columns:
+            gl = gl[gl["TEAM_ID"] == int(team_id)].copy()
+
+        # Normalize column names (some nba_api variants upper-case already)
+        df = gl.copy()
+
+        # Basic counting stats: mean of game totals
+        out = {
+            "PTS": float(df["PTS"].astype(float).mean()),
+            "REB": float(df["REB"].astype(float).mean()),
+            "AST": float(df["AST"].astype(float).mean()),
+            "STL": float(df["STL"].astype(float).mean()),
+            "BLK": float(df["BLK"].astype(float).mean()),
+        }
+
+        # Percentages from totals (BRef-style)
+        # Guard against missing columns
+        fgm = float(df.get("FGM", 0).astype(float).sum()) if "FGM" in df.columns else None
+        fga = float(df.get("FGA", 0).astype(float).sum()) if "FGA" in df.columns else None
+        fg3m = float(df.get("FG3M", 0).astype(float).sum()) if "FG3M" in df.columns else None
+        fg3a = float(df.get("FG3A", 0).astype(float).sum()) if "FG3A" in df.columns else None
+
+        if fgm is not None and fga and fga > 0:
+            out["FG_PCT"] = (fgm / fga) * 100.0
+        elif "FG_PCT" in df.columns:
+            out["FG_PCT"] = float(df["FG_PCT"].astype(float).mean()) * (100.0 if df["FG_PCT"].max() <= 1.0 else 1.0)
+        else:
+            out["FG_PCT"] = 0.0
+
+        if fg3m is not None and fg3a and fg3a > 0:
+            out["FG3_PCT"] = (fg3m / fg3a) * 100.0
+        elif "FG3_PCT" in df.columns:
+            out["FG3_PCT"] = float(df["FG3_PCT"].astype(float).mean()) * (100.0 if df["FG3_PCT"].max() <= 1.0 else 1.0)
+        else:
+            out["FG3_PCT"] = 0.0
+
+        # Opponent raw (optional / if available)
+        if "OPP_PTS" in df.columns:
+            out["OPP_PTS"] = float(df["OPP_PTS"].astype(float).mean())
+
+        opp_fgm = float(df.get("OPP_FGM", 0).astype(float).sum()) if "OPP_FGM" in df.columns else None
+        opp_fga = float(df.get("OPP_FGA", 0).astype(float).sum()) if "OPP_FGA" in df.columns else None
+        opp_fg3m = float(df.get("OPP_FG3M", 0).astype(float).sum()) if "OPP_FG3M" in df.columns else None
+        opp_fg3a = float(df.get("OPP_FG3A", 0).astype(float).sum()) if "OPP_FG3A" in df.columns else None
+
+        if opp_fgm is not None and opp_fga and opp_fga > 0:
+            out["OPP_FG_PCT"] = (opp_fgm / opp_fga) * 100.0
+        if opp_fg3m is not None and opp_fg3a and opp_fg3a > 0:
+            out["OPP_FG3_PCT"] = (opp_fg3m / opp_fg3a) * 100.0
+
+        return out
+    except Exception:
+        return {}
+
+# ---------------------------
+# Compatibility shim for nba_api
+#   (robust to param rename: measure_type_detailed_def vs measure_type_detailed)
+#   and to league_id vs league_id_nullable vs none
+# ---------------------------
 def _ldt_compat(*, season: str, season_type: str = "Regular Season",
                 per_mode: str = "PerGame", measure: str = "Base") -> pd.DataFrame:
     """
-    Compatibility wrapper for LeagueDashTeamStats parameter name change.
-    Tries 'measure_type_detailed_def' first, falls back to 'measure_type_detailed'.
+    LeagueDashTeamStats wrapper that:
+      - Detects the correct 'measure_type_*' kwarg by introspection
+      - Detects 'league_id' vs 'league_id_nullable' (or omits if neither)
+      - Returns NBA-only rows (filters by TEAM_ID prefix 161061)
     """
+    base_kwargs = dict(
+        season=season,
+        season_type_all_star=season_type,
+        per_mode_detailed=per_mode,
+    )
+
+    # Introspect the constructor to decide which kwargs are valid
     try:
-        df = leaguedashteamstats.LeagueDashTeamStats(
-            season=season,
-            season_type_all_star=season_type,
-            per_mode_detailed=per_mode,
-            measure_type_detailed_def=measure,
-        ).get_data_frames()[0]
-        return df
-    except TypeError:
-        # Older nba_api versions expect 'measure_type_detailed'
-        df = leaguedashteamstats.LeagueDashTeamStats(
-            season=season,
-            season_type_all_star=season_type,
-            per_mode_detailed=per_mode,
-            measure_type_detailed=measure,
-        ).get_data_frames()[0]
-        return df
+        sig = inspect.signature(leaguedashteamstats.LeagueDashTeamStats.__init__)
+        params = sig.parameters
+    except Exception:
+        params = {}
 
+    # Pick the right MEASURE kwarg
+    if "measure_type_detailed_def" in params:
+        measure_kw = {"measure_type_detailed_def": measure}
+    elif "measure_type_detailed" in params:
+        measure_kw = {"measure_type_detailed": measure}
+    else:
+        # Extremely old/odd version — try without a measure kw (API will default)
+        measure_kw = {}
 
-# -------------------------
+    # Pick the right LEAGUE kwarg (if available)
+    if "league_id_nullable" in params:
+        league_kw = {"league_id_nullable": "00"}
+    elif "league_id" in params:
+        league_kw = {"league_id": "00"}
+    else:
+        league_kw = {}
+
+    # Call with only supported kwargs
+    df = leaguedashteamstats.LeagueDashTeamStats(
+        **base_kwargs, **measure_kw, **league_kw
+    ).get_data_frames()[0]
+
+    # Defensive: keep only real NBA team_id space (1610612xxx)
+    if "TEAM_ID" in df.columns:
+        df = df[df["TEAM_ID"].astype(str).str.startswith("161061")].copy()
+
+    return df
+
+# ---------------------------
 # Teams endpoint
-# -------------------------
+# ---------------------------
 @lru_cache(maxsize=1)
 def _all_teams_norm():
-    # Get all NBA teams from static data
     rows = static_teams.get_teams()
     return [
         {
@@ -114,6 +202,7 @@ def _all_teams_norm():
         }
         for r in rows
     ]
+
 
 @router.get("/teams")
 def list_teams(
@@ -138,21 +227,19 @@ def list_teams(
     items = data[offset: offset + limit]
     return {"total": total, "items": items}
 
-# -------------------------
+
+# ---------------------------
 # Team Bio
-# -------------------------
+# ---------------------------
 @lru_cache(maxsize=512)
 def _fetch_team_bio(team_id: str) -> dict | None:
-    """Fetch basic team information from static data"""
     teams_data = static_teams.get_teams()
     team = next((t for t in teams_data if str(t["id"]) == str(team_id)), None)
-    
+
     if not team:
         return None
-    
-    # Construct logo URL (NBA.com format)
+
     logo_url = f"https://cdn.nba.com/logos/nba/{team_id}/global/L/logo.svg"
-    
     return {
         "team_id": str(team_id),
         "name": team["full_name"],
@@ -163,6 +250,7 @@ def _fetch_team_bio(team_id: str) -> dict | None:
         "logo_url": logo_url,
     }
 
+
 @router.get("/team_bio")
 def get_team_bio(
     team_id: str = Query(...),
@@ -171,21 +259,19 @@ def get_team_bio(
     data = _fetch_team_bio(team_id)
     if not data:
         raise HTTPException(status_code=404, detail="Team not found")
-    
-    # For now, return basic team info
-    # TODO: Add season-specific data like record, standing, coach, arena
+
     return {
         **data,
-        "record": None,  # TODO: implement
-        "standing": None,  # TODO: implement
-        "coach": None,  # TODO: implement
-        "arena": None,  # TODO: implement
+        "record": None,   # TODO
+        "standing": None, # TODO
+        "coach": None,    # TODO
+        "arena": None,    # TODO
     }
 
-# -------------------------
-# Team Profile Stats
-# -------------------------
-# --- helper: pull opponent table + compute season baselines ---
+
+# ---------------------------
+# Opponent baselines for defense normalization
+# ---------------------------
 @lru_cache(maxsize=16)
 def _opp_baselines(season_fmt: str) -> dict:
     """
@@ -196,7 +282,7 @@ def _opp_baselines(season_fmt: str) -> dict:
         'FG_PCT': (min_fg, max_fg),
         'FG3_PCT': (min_3p, max_3p),
       }
-    Values are in *percent units* for pct metrics (0–100).
+    Values are in percent units (0–100) for pct metrics.
     """
     try:
         df_opp = _ldt_compat(
@@ -208,41 +294,26 @@ def _opp_baselines(season_fmt: str) -> dict:
         if df_opp is None or df_opp.empty:
             raise ValueError("opp table empty")
 
-        # Ensure % columns are in 0..100 (nba_api may return 0..1)
-        def pct100(s):
-            s = pd.to_numeric(s, errors="coerce")
-            s = s.fillna(0.0)
-            # If max <= 1, it’s ratios → convert
+        def pctcol(series):
+            s = pd.to_numeric(series, errors="coerce").fillna(0.0)
             return (s * 100.0) if s.max() <= 1.0 else s
 
-        opp_pts  = pd.to_numeric(df_opp.get("OPP_PTS"), errors="coerce").fillna(0.0)
-        opp_fg   = pct100(df_opp.get("OPP_FG_PCT"))
-        opp_fg3  = pct100(df_opp.get("OPP_FG3_PCT"))
+        opp_pts = pd.to_numeric(df_opp.get("OPP_PTS"), errors="coerce").fillna(0.0)
+        opp_fg  = pctcol(df_opp.get("OPP_FG_PCT"))
+        opp_3p  = pctcol(df_opp.get("OPP_FG3_PCT"))
 
         return {
             "PTS":     (float(opp_pts.min()), float(opp_pts.max())),
             "FG_PCT":  (float(opp_fg.min()),  float(opp_fg.max())),
-            "FG3_PCT": (float(opp_fg3.min()), float(opp_fg3.max())),
+            "FG3_PCT": (float(opp_3p.min()),  float(opp_3p.max())),
         }
     except Exception:
-        # signal fallback by returning {}
         return {}
 
 
-def _minmax_inv(value: float, mn: float, mx: float) -> float:
-    """
-    Map value to 0..100 using (mx - v)/(mx - mn).
-    Clamps safely and rounds to 1dp.
-    """
-    try:
-        v = float(value)
-    except (TypeError, ValueError):
-        return 0.0
-    if mx <= mn:
-        return 0.0
-    v = min(max(v, mn), mx)
-    return round(((mx - v) / (mx - mn)) * 100.0, 1)
-
+# ---------------------------
+# Team Profile Stats
+# ---------------------------
 @router.get("/team_profile_stats")
 def get_team_profile_stats(
     team_id: str = Query(...),
@@ -250,41 +321,57 @@ def get_team_profile_stats(
 ):
     """
     Returns normalized team profile (0–100) + raw per-game numbers.
-    - Team legs use your normalize_stats(kind='team') caps.
+    - Team legs use normalize_stats(kind='team') caps.
     - Opponent legs use dynamic per-season league min/max (defense → higher=better).
     """
     try:
         season = season or current_nba_season()
         season_fmt = format_season(season)
 
-        dash = teamdashboardbygeneralsplits.TeamDashboardByGeneralSplits(
-            team_id=int(team_id),
+        # --- TEAM (Base table) ---
+        df_team = _ldt_compat(
             season=season_fmt,
-            season_type_all_star="Regular Season",
-            per_mode_detailed="PerGame",
-        ).get_data_frames()
+            season_type="Regular Season",
+            per_mode="PerGame",
+            measure="Base",
+        )
+        row_team = df_team.loc[df_team["TEAM_ID"] == int(team_id)]
+        if row_team.empty:
+            raise ValueError(f"TEAM_ID {team_id} not found in Base table")
+        t = row_team.iloc[0]
 
-        team_df = dash[0] if len(dash) > 0 else pd.DataFrame()
-        opp_df  = dash[1] if len(dash) > 1 else pd.DataFrame()
-        if team_df.empty:
-            raise ValueError("empty team dashboard")
+        # --- OPPONENT (Opponent table) ---
+        df_opp = _ldt_compat(
+            season=season_fmt,
+            season_type="Regular Season",
+            per_mode="PerGame",
+            measure="Opponent",
+        )
+        row_opp = df_opp.loc[df_opp["TEAM_ID"] == int(team_id)]
+        if row_opp.empty:
+            raise ValueError(f"TEAM_ID {team_id} not found in Opponent table")
+        o = row_opp.iloc[0]
 
-        # --- TEAM (per-game) ---
-        t = team_df.iloc[0]
-        def pct100(x):
-            try:
-                f = float(x)
-                return f * 100.0 if 0.0 <= f <= 1.0 else f
-            except Exception:
-                return 0.0
+        # --- TEAM raw per-game (from game logs to match BRef methodology) ---
+        pg = _team_pg_from_gamelog(int(team_id), season_fmt)
 
-        team_pts = float(t.get("PTS", 0))
-        team_reb = float(t.get("REB", 0))
-        team_ast = float(t.get("AST", 0))
-        team_blk = float(t.get("BLK", 0))
-        team_stl = float(t.get("STL", 0))
-        team_fg  = pct100(t.get("FG_PCT", 0))
-        team_3p  = pct100(t.get("FG3_PCT", 0))
+        if pg:
+            team_pts = float(pg.get("PTS", 0.0))
+            team_reb = float(pg.get("REB", 0.0))
+            team_ast = float(pg.get("AST", 0.0))
+            team_blk = float(pg.get("BLK", 0.0))
+            team_stl = float(pg.get("STL", 0.0))
+            team_fg  = float(pg.get("FG_PCT", 0.0))   # already 0–100
+            team_3p  = float(pg.get("FG3_PCT", 0.0))  # already 0–100
+        else:
+            # Fallback to LeagueDashTeamStats (may differ slightly from BRef)
+            team_pts = float(t.get("PTS", 0))
+            team_reb = float(t.get("REB", 0))
+            team_ast = float(t.get("AST", 0))
+            team_blk = float(t.get("BLK", 0))
+            team_stl = float(t.get("STL", 0))
+            team_fg  = _pct100(t.get("FG_PCT", 0))
+            team_3p  = _pct100(t.get("FG3_PCT", 0))
 
         norm_team = normalize_stats({
             "TEAM_PTS": team_pts,
@@ -296,21 +383,18 @@ def get_team_profile_stats(
             "TEAM_FG3_PCT": team_3p,
         }, kind="team")
 
-        # --- OPPONENT raw (prefer OPP_* on team_df, else opp_df) ---
-        # --- OPPONENT raw (prefer OPP_* on team_df, else opp_df) ---
-        if any(c.startswith("OPP_") for c in team_df.columns):
+        # --- OPPONENT raw
+        # Prefer OPP_* on Base table if present, else use plain cols from Opponent table.
+        if any(str(c).startswith("OPP_") for c in df_team.columns):
             raw_opp_pts = float(t.get("OPP_PTS", 0))
             raw_opp_fg  = _pct100(t.get("OPP_FG_PCT", 0))
             raw_opp_3p  = _pct100(t.get("OPP_FG3_PCT", 0))
-        elif not opp_df.empty:
-            o = opp_df.iloc[0]
+        else:
             raw_opp_pts = float(o.get("PTS", 0))
             raw_opp_fg  = _pct100(o.get("FG_PCT", 0))
             raw_opp_3p  = _pct100(o.get("FG3_PCT", 0))
-        else:
-            raw_opp_pts = raw_opp_fg = raw_opp_3p = 0.0
 
-        # --- Opponent normalization: dynamic min/max per season ---
+        # --- Opponent normalization: dynamic per-season min/max ---
         baselines = _opp_baselines(season_fmt)
         if baselines:
             opp_points = _minmax_inv(raw_opp_pts, *baselines["PTS"])
@@ -318,7 +402,7 @@ def get_team_profile_stats(
             opp_fg3_pct= _minmax_inv(raw_opp_3p,  *baselines["FG3_PCT"])
             scale_hint = "dynamic"
         else:
-            # fallback to fixed caps if baselines unavailable
+            # fallback fixed caps
             OPP_CAP = {"PTS": 130.0, "FG_PCT": 60.0, "FG3_PCT": 45.0}
             def inv_cap(v, cap):
                 v = max(0.0, min(float(v or 0.0), cap))
@@ -327,7 +411,6 @@ def get_team_profile_stats(
             opp_fg_pct = inv_cap(raw_opp_fg,  OPP_CAP["FG_PCT"])
             opp_fg3_pct= inv_cap(raw_opp_3p,  OPP_CAP["FG3_PCT"])
             scale_hint = "cap"
-
 
         return {
             # team (normalized + raw)
@@ -347,7 +430,7 @@ def get_team_profile_stats(
             "raw_fg_pct": round(team_fg, 1),
             "raw_fg3_pct": round(team_3p, 1),
 
-            # opponent (normalized with dynamic per-season scale) + raw
+            # opponent (normalized + raw)
             "opp_points": opp_points,
             "opp_fg_pct": opp_fg_pct,
             "opp_fg3_pct": opp_fg3_pct,
@@ -356,7 +439,6 @@ def get_team_profile_stats(
             "raw_opp_fg_pct": round(raw_opp_fg, 1),
             "raw_opp_fg3_pct": round(raw_opp_3p, 1),
 
-            # optional metadata for debugging / transparency
             "opponent_scale": scale_hint,
             "season": season_fmt,
         }
@@ -372,11 +454,9 @@ def get_team_profile_stats(
         }
 
 
-
-
-# -------------------------
+# ---------------------------
 # Cached league shots
-# -------------------------
+# ---------------------------
 def _fetch_league_shots(season_fmt: str, retries=2, backoff=1.5) -> pd.DataFrame:
     last_err = None
     for attempt in range(retries + 1):
@@ -399,16 +479,17 @@ def _fetch_league_shots(season_fmt: str, retries=2, backoff=1.5) -> pd.DataFrame
         except Exception as e:
             last_err = e
             break
-    # Last resort: empty df (prevents 500 → keeps CORS headers)
     return pd.DataFrame()
+
 
 @lru_cache(maxsize=8)
 def _league_shots_for_season(season_fmt: str) -> pd.DataFrame:
     return _fetch_league_shots(season_fmt)
 
-# -------------------------
+
+# ---------------------------
 # Team shots
-# -------------------------
+# ---------------------------
 @router.get("/team_shots")
 def team_shots(team_id: int = Query(...), season: str = Query(...)):
     season_fmt = format_season(season)
@@ -422,26 +503,22 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
             "summary_against": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
         }
 
-    # keep columns we need (add SHOT_TYPE so we can compute 3P%)
     cols = [
         "LOC_X","LOC_Y","SHOT_MADE_FLAG","TEAM_ID",
         "SHOT_ZONE_BASIC","SHOT_DISTANCE","SHOT_TYPE","HTM","VTM"
     ]
     df = df[[c for c in cols if c in df.columns]].copy()
 
-    # --- lookup team abbreviation ---
     teams_data = static_teams.get_teams()
     team_row = next((t for t in teams_data if int(t["id"]) == int(team_id)), None)
     team_abbr = (team_row or {}).get("abbreviation")
 
-    # filter to games that involve this team using HTM/VTM (if present)
     if "HTM" in df.columns and "VTM" in df.columns and team_abbr:
         df["HTM"] = df["HTM"].astype(str).str.upper()
         df["VTM"] = df["VTM"].astype(str).str.upper()
         involves = (df["HTM"] == team_abbr) | (df["VTM"] == team_abbr)
         df = df[involves].copy()
 
-    # split
     shots_for_df = df[df["TEAM_ID"] == int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
     shots_against_df = df[df["TEAM_ID"] != int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
 
@@ -465,11 +542,9 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
         fgm = int(frame["SHOT_MADE_FLAG"].fillna(0).astype(int).sum())
         fg_pct = round((fgm / fga) * 100.0, 1) if fga else 0.0
 
-        # detect threes via SHOT_TYPE if available (e.g., "3PT Field Goal")
         if "SHOT_TYPE" in frame.columns:
             threes = frame[frame["SHOT_TYPE"].astype(str).str.startswith("3PT", na=False)]
         else:
-            # crude fallback: treat >= 23 ft as a 3 (NBA arc ~23'9" above break)
             threes = frame[frame.get("SHOT_DISTANCE", pd.Series(dtype=float)) >= 23]
 
         fg3a = int(len(threes))
@@ -488,14 +563,83 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
     }
 
 
+# ---------------------------
+# Debug helpers
+# ---------------------------
 
-# debug only
+@router.get("/_debug/team_gamelog")
+def debug_team_gamelog(team_id: int = Query(...), season: str = Query(...)):
+    season_fmt = format_season(season)
+    try:
+        gl_kwargs = dict(
+            team_id=team_id,
+            season=season_fmt,
+            season_type_all_star="Regular Season",
+        )
+        try:
+            sig = inspect.signature(teamgamelog.TeamGameLog.__init__)
+        except (TypeError, ValueError):
+            sig = None
+        if sig is not None:
+            params = sig.parameters
+            if "league_id_nullable" in params:
+                gl_kwargs["league_id_nullable"] = "00"
+            elif "league_id" in params:
+                gl_kwargs["league_id"] = "00"
+
+        gl = teamgamelog.TeamGameLog(**gl_kwargs).get_data_frames()[0]
+    except Exception as e:
+        return {"season": season_fmt, "team_id": team_id, "error": str(e)}
+
+    if gl is None or gl.empty:
+        return {"season": season_fmt, "team_id": team_id, "empty": True}
+
+    df = gl.copy()
+    head = df.head(3).to_dict(orient="records")
+
+    def safe_sum(col):
+        return float(df.get(col, 0).astype(float).sum()) if col in df.columns else 0.0
+
+    fgm, fga = safe_sum("FGM"), safe_sum("FGA")
+    fg3m, fg3a = safe_sum("FG3M"), safe_sum("FG3A")
+    opp_fgm, opp_fga = safe_sum("OPP_FGM"), safe_sum("OPP_FGA")
+    opp_fg3m, opp_fg3a = safe_sum("OPP_FG3M"), safe_sum("OPP_FG3A")
+
+    pg = {
+        "PTS": float(df.get("PTS", 0).astype(float).mean()) if "PTS" in df.columns else 0.0,
+        "REB": float(df.get("REB", 0).astype(float).mean()) if "REB" in df.columns else 0.0,
+        "AST": float(df.get("AST", 0).astype(float).mean()) if "AST" in df.columns else 0.0,
+        "STL": float(df.get("STL", 0).astype(float).mean()) if "STL" in df.columns else 0.0,
+        "BLK": float(df.get("BLK", 0).astype(float).mean()) if "BLK" in df.columns else 0.0,
+        "FG_PCT": (fgm / fga * 100.0) if fga > 0 else None,
+        "FG3_PCT": (fg3m / fg3a * 100.0) if fg3a > 0 else None,
+    }
+
+    if "OPP_PTS" in df.columns:
+        pg["OPP_PTS"] = float(df["OPP_PTS"].astype(float).mean())
+    if opp_fga > 0:
+        pg["OPP_FG_PCT"] = (opp_fgm / opp_fga) * 100.0
+    if opp_fg3a > 0:
+        pg["OPP_FG3_PCT"] = (opp_fg3m / opp_fg3a) * 100.0
+
+    return {
+        "season": season_fmt,
+        "team_id": team_id,
+        "columns": list(df.columns),
+        "games": int(len(df)),
+        "head": head,
+        "totals": {
+            "FGM": fgm, "FGA": fga, "FG3M": fg3m, "FG3A": fg3a,
+            "OPP_FGM": opp_fgm, "OPP_FGA": opp_fga, "OPP_FG3M": opp_fg3m, "OPP_FG3A": opp_fg3a
+        },
+        "per_game_calc": pg
+    }
+
 @router.get("/_debug/leaguedashteamstats")
 def debug_leaguedashteamstats(
     season: str = Query(..., description="e.g. 2023-24"),
     season_type: str = Query("Regular Season"),
 ):
-    # Call exactly the two tables we use, return shapes/columns + a few IDs
     try:
         df_team = _ldt_compat(season=season, season_type=season_type, per_mode="PerGame", measure="Base")
     except Exception as e:
@@ -528,6 +672,7 @@ def debug_leaguedashteamstats(
         "errors": {"base": team_err, "opponent": opp_err},
     }
 
+
 @router.get("/debug/team_shots_columns")
 def debug_team_shots_columns(season: str = Query(...)):
     season_fmt = format_season(season)
@@ -542,4 +687,3 @@ def debug_team_shots_columns(season: str = Query(...)):
         "has_OPPONENT_TEAM_ID": "OPPONENT_TEAM_ID" in cols,
         "sample": sample,
     }
-
