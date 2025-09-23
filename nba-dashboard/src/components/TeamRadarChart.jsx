@@ -18,8 +18,6 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
     (async () => {
       try {
         if (!teamId) return;
-        // Expected backend: /team_profile_stats returns normalized 0–100 values
-        // plus raw_* fields (season averages) for tooltips.
         const { data } = await axios.get('http://localhost:8000/team_profile_stats', {
           params: { team_id: teamId, season }
         });
@@ -37,10 +35,11 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
   if (!stats) return <div>Loading team chart…</div>;
 
   // ------- TEAM view (normalized 0–100) -------
-  const teamTheta = ['Points', 'Rebounds', 'Assists', 'Blocks', 'Steals', 'FG%', '3P%'];
+  // Added Turnovers (lower is better). We label it clearly.
+  const teamTheta = ['Points', 'Rebounds', 'Assists', 'Blocks', 'Steals', 'FG%', '3P%', 'Turnovers (↓ better)'];
   const teamR = [
     stats.points, stats.rebounds, stats.assists,
-    stats.blocks, stats.steals, stats.fg_pct, stats.fg3_pct
+    stats.blocks, stats.steals, stats.fg_pct, stats.fg3_pct, stats.turnovers
   ];
   const teamHover = [
     `Points: ${stats.raw_points} PPG`,
@@ -50,19 +49,26 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
     `Steals: ${stats.raw_steals} SPG`,
     `FG%: ${stats.raw_fg_pct}%`,
     `3P%: ${stats.raw_fg3_pct}%`,
+    `Turnovers: ${stats.raw_tov} TOPG`,
   ];
 
   // ------- OPPONENT view (normalized 0–100) -------
-  // Expect: opp_points, opp_fg_pct, opp_fg3_pct + raw_opp_* counterparts
-  const oppTheta = ['Opp Pts', 'Opp FG%', 'Opp 3P%'];
-  const oppR = [stats.opp_points, stats.opp_fg_pct, stats.opp_fg3_pct];
+  // Expanded with AST, REB, FTM, FT%.
+  const oppTheta = ['Opp Pts', 'Opp FG%', 'Opp 3P%', 'Opp AST', 'Opp REB', 'Opp FTM', 'Opp FT%'];
+  const oppR = [
+    stats.opp_points, stats.opp_fg_pct, stats.opp_fg3_pct,
+    stats.opp_ast, stats.opp_reb, stats.opp_ftm, stats.opp_ft_pct
+  ];
   const oppHover = [
     `Opp Points: ${stats.raw_opp_points} PPG`,
     `Opp FG%: ${stats.raw_opp_fg_pct}%`,
     `Opp 3P%: ${stats.raw_opp_fg3_pct}%`,
+    `Opp Assists: ${stats.raw_opp_ast} APG`,
+    `Opp Rebounds: ${stats.raw_opp_reb} RPG`,
+    `Opp Free Throws: ${stats.raw_opp_ftm} FTM/G`,
+    `Opp FT%: ${stats.raw_opp_ft_pct}%`,
   ];
 
-  // Basic guards against undefined/NaN
   const isFiniteArray = (arr) => arr.every(v => Number.isFinite(v));
   const validTeam = isFiniteArray(teamR);
   const validOpp = isFiniteArray(oppR);
