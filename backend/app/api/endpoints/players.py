@@ -240,7 +240,7 @@ def get_player_stats(
 # -------------------------
 # Profile averages
 # -------------------------
-@router.get("/player_profile_stats", response_model=PlayerProfileStats)
+@router.get("/player_profile_stats")  # remove response_model or update the model to include new fields
 def get_player_profile_stats(
     player_id: str = Query(...),
     season: Optional[str] = Query(None),
@@ -248,8 +248,6 @@ def get_player_profile_stats(
     try:
         raw_season = season
         season = season or current_nba_season()
-
-        # Force canonical "YYYY-YY" *before* calling nba_api
         formatted_season = format_season(season).strip()
         print(f"[profile_stats] player={player_id}  raw_season={raw_season!r}  formatted={formatted_season}")
 
@@ -259,63 +257,85 @@ def get_player_profile_stats(
             season_type_all_star="Regular Season"
         ).get_data_frames()[0]
 
-        # Helpful to see which dates the API actually returned
-        if not logs.empty:
-            print(
-                "[profile_stats] rows=", len(logs),
-                " first_date=", logs["GAME_DATE"].iloc[-1] if "GAME_DATE" in logs else "n/a",
-                " last_date=", logs["GAME_DATE"].iloc[0]  if "GAME_DATE" in logs else "n/a",
-            )
-        else:
-            print("[profile_stats] EMPTY logs for", formatted_season)
-
         if logs.empty:
-            return PlayerProfileStats(
-                points=0, rebounds=0, assists=0, blocks=0, steals=0, fg_pct=0, fg3_pct=0,
-                raw_points=0, raw_rebounds=0, raw_assists=0, raw_blocks=0, raw_steals=0,
-                raw_fg_pct=0, raw_fg3_pct=0
-            )
+            return {
+                "points":0,"rebounds":0,"assists":0,"blocks":0,"steals":0,"fg_pct":0,"fg3_pct":0,
+                "ft_rate":0,"ft_pct":0,"turnovers":0,
+                "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,
+                "raw_fg_pct":0,"raw_fg3_pct":0,"raw_ft_rate":0,"raw_ft_pct":0,"raw_tov":0
+            }
 
-        averages = logs[['PTS', 'REB', 'AST', 'BLK', 'STL']].mean().fillna(0)
+        # Per-game means for counting stats
+        avgs = logs[['PTS','REB','AST','BLK','STL','TOV']].mean().fillna(0)
+        tov_pg = float(avgs['TOV']) if 'TOV' in avgs else 0.0
 
-        fgm  = float(logs['FGM'].sum())
-        fga  = float(logs['FGA'].sum())
-        fg3m = float(logs['FG3M'].sum())
-        fg3a = float(logs['FG3A'].sum())
+        # Totals for percentage-based
+        fgm  = float(logs['FGM'].sum()) if 'FGM' in logs.columns else 0.0
+        fga  = float(logs['FGA'].sum()) if 'FGA' in logs.columns else 0.0
+        fg3m = float(logs['FG3M'].sum()) if 'FG3M' in logs.columns else 0.0
+        fg3a = float(logs['FG3A'].sum()) if 'FG3A' in logs.columns else 0.0
+        ftm  = float(logs['FTM'].sum()) if 'FTM' in logs.columns else 0.0
+        fta  = float(logs['FTA'].sum()) if 'FTA' in logs.columns else 0.0
 
         fg_pct_season  = (fgm / fga * 100.0) if fga > 0 else 0.0
         fg3_pct_season = (fg3m / fg3a * 100.0) if fg3a > 0 else 0.0
+        ft_pct_season  = (ftm / fta * 100.0) if fta > 0 else 0.0
+        ftr_ratio      = (fta / fga) if fga > 0 else 0.0   # free throw rate (FTA / FGA)
+        ftr_percent    = ftr_ratio * 100.0                 # display as %
 
+        # Normalize (player context)
         normalized = normalize_stats({
-            'PTS': averages['PTS'],
-            'REB': averages['REB'],
-            'AST': averages['AST'],
-            'BLK': averages['BLK'],
-            'STL': averages['STL'],
-            'FG_PCT':  fg_pct_season,
-            'FG3_PCT': fg3_pct_season,
-        })
+            'PTS': avgs['PTS'],
+            'REB': avgs['REB'],
+            'AST': avgs['AST'],
+            'BLK': avgs['BLK'],
+            'STL': avgs['STL'],
+            'FG_PCT':   fg_pct_season,   # already 0–100
+            'FG3_PCT':  fg3_pct_season,  # already 0–100
+            'FT_PCT':   ft_pct_season,   # NEW
+            'TOV':      tov_pg,          # NEW (will be inverted if your normalize supports it)
+            'FTR':      ftr_percent,     # NEW (accepts 0–100 or 0–1 in normalize)
+        }, kind="player")
 
-        return PlayerProfileStats(
-            points=normalized['points'],
-            rebounds=normalized['rebounds'],
-            assists=normalized['assists'],
-            blocks=normalized['blocks'],
-            steals=normalized['steals'],
-            fg_pct=normalized['fg_pct'],
-            fg3_pct=normalized['fg3_pct'],
-            raw_points=round(float(averages['PTS']), 1),
-            raw_rebounds=round(float(averages['REB']), 1),
-            raw_assists=round(float(averages['AST']), 1),
-            raw_blocks=round(float(averages['BLK']), 1),
-            raw_steals=round(float(averages['STL']), 1),
-            raw_fg_pct=round(fg_pct_season, 1),
-            raw_fg3_pct=round(fg3_pct_season, 1),
-        )
+        # Fallbacks in case your normalize.py doesn’t yet emit these keys
+        ft_rate_norm = float(normalized.get('ft_rate', 0.0))
+        ft_pct_norm  = float(normalized.get('ft_pct', 0.0))
+        tov_norm     = float(normalized.get('turnovers', 0.0))
 
-    except Exception:
-        return PlayerProfileStats(
-            points=0, rebounds=0, assists=0, blocks=0, steals=0, fg_pct=0, fg3_pct=0,
-            raw_points=0, raw_rebounds=0, raw_assists=0, raw_blocks=0, raw_steals=0,
-            raw_fg_pct=0, raw_fg3_pct=0
-        )
+        return {
+            "points":   normalized['points'],
+            "rebounds": normalized['rebounds'],
+            "assists":  normalized['assists'],
+            "blocks":   normalized['blocks'],
+            "steals":   normalized['steals'],
+            "fg_pct":   normalized['fg_pct'],
+            "fg3_pct":  normalized['fg3_pct'],
+
+            # NEW normalized legs
+            "ft_rate":  ft_rate_norm,
+            "ft_pct":   ft_pct_norm,
+            "turnovers": tov_norm,
+
+            # raw hovers
+            "raw_points": round(float(avgs['PTS']), 1),
+            "raw_rebounds": round(float(avgs['REB']), 1),
+            "raw_assists": round(float(avgs['AST']), 1),
+            "raw_blocks": round(float(avgs['BLK']), 1),
+            "raw_steals": round(float(avgs['STL']), 1),
+            "raw_fg_pct": round(fg_pct_season, 1),
+            "raw_fg3_pct": round(fg3_pct_season, 1),
+
+            # NEW raw hovers
+            "raw_ft_rate": round(ftr_percent, 1),  # show as %
+            "raw_ft_pct":  round(ft_pct_season, 1),
+            "raw_tov":     round(tov_pg, 1),
+        }
+
+    except Exception as e:
+        print("[player_profile_stats] error:", e)
+        return {
+            "points":0,"rebounds":0,"assists":0,"blocks":0,"steals":0,"fg_pct":0,"fg3_pct":0,
+            "ft_rate":0,"ft_pct":0,"turnovers":0,
+            "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,
+            "raw_fg_pct":0,"raw_fg3_pct":0,"raw_ft_rate":0,"raw_ft_pct":0,"raw_tov":0
+        }

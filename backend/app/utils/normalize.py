@@ -61,10 +61,9 @@ PLAYER_CEIL = {
     'STL': 3.5,
     'FG_PCT': 65,
     'FG3_PCT': 45,
-    # optional extras if ever needed
-    'FTM': 18,
-    'FT_PCT': 92,
-    'TOV': 8,  # inverse
+    'FT_PCT': 95,   # player FT% ceiling
+    'TOV': 8,       # inverse scale (lower is better)
+    'FTR': 70,      # FT Rate ceiling, as a percent (i.e., 70%); typical stars 20–50%
 }
 
 TEAM_CEIL = {
@@ -142,5 +141,19 @@ def normalize_stats(raw: dict, kind: str = "player") -> dict:
     if 'TEAM_TOV' in raw or 'TOV' in raw:
         tov = _safe_float(_get(raw, 'TEAM_TOV', 'TOV'))
         out['turnovers'] = _norm_inv(tov, CEIL['TOV'])
+
+    # Optional extras (players)
+    if kind == "player":
+        # FT% (0–100 or 0–1)
+        if 'FT_PCT' in raw:
+            from_pct = _pct_to_100(raw['FT_PCT'])
+            out['ft_pct'] = _norm(from_pct, CEIL['FT_PCT'])
+        # Turnovers (inverse)
+        if 'TOV' in raw:
+            out['turnovers'] = _norm_inv(raw['TOV'], CEIL['TOV'])
+        # Free-throw rate (as %; accept 0–1 or 0–100)
+        if 'FTR' in raw:
+            ftr_pct = _pct_to_100(raw['FTR'])
+            out['ft_rate'] = _norm(ftr_pct, CEIL['FTR'])
 
     return out
