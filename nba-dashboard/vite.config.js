@@ -3,8 +3,6 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  optimizeDeps: {
-    exclude: ['plotly.js-dist-min'],
-  },
+  base: '/hanson-hoops/',   // important for GH Pages subfolder
 });
 
