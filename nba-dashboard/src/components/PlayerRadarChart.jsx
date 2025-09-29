@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
 import axios from 'axios';
+import { API_BASE } from '../lib/api.js';
 
 // Let react-plotly.js find Plotly on window
 if (typeof window !== 'undefined' && !window.Plotly) {
@@ -17,7 +18,7 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
       try {
         if (!playerId) return;
         console.log('[Radar] fetching', { playerId, season });
-        const { data } = await axios.get('http://localhost:8000/player_profile_stats', {
+        const { data } = await axios.get(`${API_BASE}/player_profile_stats`, {
           params: { player_id: playerId, season },
         });
         setStats(data);

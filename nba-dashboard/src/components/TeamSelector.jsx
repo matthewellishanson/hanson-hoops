@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { API_BASE } from '../lib/api.js';
 
 // Season helpers (same pattern you used elsewhere)
 function currentNbaSeasonStartYear() {
@@ -34,7 +35,7 @@ export default function TeamSelector({ onSelect, initialSeason = null }) {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      axios.get('http://localhost:8000/teams', {
+      axios.get(`${API_BASE}/teams`, {
         params: {
           search: search || undefined,
           limit,

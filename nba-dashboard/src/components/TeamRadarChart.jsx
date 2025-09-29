@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
 import axios from 'axios';
+import { API_BASE } from '../lib/api.js';
 
 // Let react-plotly.js find Plotly on window (same pattern as your other charts)
 if (typeof window !== 'undefined' && !window.Plotly) {
@@ -18,7 +19,7 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
     (async () => {
       try {
         if (!teamId) return;
-        const { data } = await axios.get('http://localhost:8000/team_profile_stats', {
+        const { data } = await axios.get(`${API_BASE}/team_profile_stats`, {
           params: { team_id: teamId, season }
         });
         if (alive) { setStats(data); setError(null); }

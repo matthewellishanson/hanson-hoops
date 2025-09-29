@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { API_BASE } from '../lib/api.js';
 
 // === local helpers (no import needed) ===
 function currentNbaSeasonStartYear() {
@@ -43,7 +44,7 @@ export default function PlayerSelector({ onSelect, initialSeason = null }) {
   // debounce search/paging requests
   useEffect(() => {
     const t = setTimeout(() => {
-      axios.get('http://localhost:8000/players', {
+      axios.get(`${API_BASE}/players`, {
         params: {
           search: search || undefined,
           active_only: false,  // all-time list ✅
