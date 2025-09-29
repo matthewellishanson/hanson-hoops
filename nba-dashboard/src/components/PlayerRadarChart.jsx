@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
 import axios from 'axios';
-import { API_BASE } from '../lib/api.js';
+import { API_BASE } from '../config.ts';
 
 // Let react-plotly.js find Plotly on window
 if (typeof window !== 'undefined' && !window.Plotly) {

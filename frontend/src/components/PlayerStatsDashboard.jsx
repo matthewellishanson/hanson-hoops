@@ -3,6 +3,7 @@ import Plot from "react-plotly.js";
 import axios from "axios";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { API_BASE } from '../config.ts';
 
 export default function PlayerStatsDashboard() {
   const [players, setPlayers] = useState([]);
@@ -13,7 +14,7 @@ export default function PlayerStatsDashboard() {
 
   useEffect(() => {
     const fetchPlayers = async () => {
-      const res = await axios.get("http://localhost:8000/players");
+      const res = await axios.get(`${API_BASE}/players`);
       setPlayers(res.data);
     };
     fetchPlayers();
@@ -21,7 +22,7 @@ export default function PlayerStatsDashboard() {
 
   useEffect(() => {
     const fetchStats = async () => {
-      const res = await axios.get(`http://localhost:8000/player_stats?player_id=${selectedPlayer}&season=${selectedSeason}`);
+      const res = await axios.get(`${API_BASE}/player_stats?player_id=${selectedPlayer}&season=${selectedSeason}`);
       setStats(res.data);
     };
     fetchStats();

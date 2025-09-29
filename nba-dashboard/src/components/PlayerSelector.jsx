@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { API_BASE } from '../lib/api.js';
+import { API_BASE } from '../config.ts';
 
 // === local helpers (no import needed) ===
 function currentNbaSeasonStartYear() {
