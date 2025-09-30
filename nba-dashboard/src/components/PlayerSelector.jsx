@@ -1,37 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../config.ts';
+import { api } from '../lib/api';
 
-// === local helpers (no import needed) ===
+// === local helpers ===
 function currentNbaSeasonStartYear() {
-  // Use October 15th as the start of a new NBA season
   const now = new Date();
   if (now.getMonth() > 9 || (now.getMonth() === 9 && now.getDate() >= 15)) {
     return now.getFullYear();
   }
   return now.getFullYear() - 1;
 }
-
 function toSeasonLabel(startYear) {
-  // 2024 -> "2024-25"
   const endYY = String((startYear + 1) % 100).padStart(2, '0');
   return `${startYear}-${endYY}`;
 }
-
 function computeCurrentNbaSeason() {
   return toSeasonLabel(currentNbaSeasonStartYear());
 }
-
 function buildSeasonList(count = 30) {
-  // Last `count` seasons, newest first (e.g., ["2024-25", "2023-24", ...])
   const start = currentNbaSeasonStartYear();
   const seasons = [];
-  for (let i = 0; i < count; i++) {
-    seasons.push(toSeasonLabel(start - i));
-  }
+  for (let i = 0; i < count; i++) seasons.push(toSeasonLabel(start - i));
   return seasons;
 }
-// =======================================
+// =====================
 
 export default function PlayerSelector({ onSelect, initialSeason = null }) {
   const [players, setPlayers] = useState([]);
@@ -41,13 +32,12 @@ export default function PlayerSelector({ onSelect, initialSeason = null }) {
   const [season, setSeason] = useState(initialSeason || computeCurrentNbaSeason());
   const limit = 50;
 
-  // debounce search/paging requests
   useEffect(() => {
     const t = setTimeout(() => {
-      axios.get(`${API_BASE}/players`, {
+      api.get('/players', {
         params: {
           search: search || undefined,
-          active_only: false,  // all-time list ✅
+          active_only: false,
           limit,
           offset,
           sort: 'name',
@@ -63,14 +53,13 @@ export default function PlayerSelector({ onSelect, initialSeason = null }) {
     return () => clearTimeout(t);
   }, [search, offset]);
 
-  const seasons = useMemo(() => buildSeasonList(80), []); // show ~80 seasons (adjust as you like)
+  const seasons = useMemo(() => buildSeasonList(80), []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const selectedId = e.target.player.value;
     const player = players.find(p => p.id === selectedId);
     if (player) {
-      // IMPORTANT: include the selected season in the payload
       onSelect({ id: player.id, name: player.name, season });
     }
   };

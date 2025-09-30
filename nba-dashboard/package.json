@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:pages": "cross-env BUILD_TARGET=pages vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -30,11 +31,7 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.3.0",
     "tailwindcss-cli": "^0.1.2",
-    "vite": "^7.0.4"
-  },
-  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
-  "main": "eslint.config.js",
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+    "vite": "^7.0.4",
+    "cross-env": "^7.0.3"
+  }
 }

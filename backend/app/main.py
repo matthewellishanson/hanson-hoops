@@ -4,18 +4,22 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-origins = [
+# Allow GitHub Pages, Render (self), and local dev
+allowed_origins = [
+    "http://localhost",
     "http://localhost:5173",
-    "http://127.0.0.1:8080",
+    "http://localhost:5174",
+    "https://hanson-hoops.onrender.com",
     "https://matthewellishanson.github.io",
     "https://matthewellishanson.github.io/hanson-hoops",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.github\.io$",  # allow any github.io if you want
+    allow_credentials=False,
+    allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
 )
 

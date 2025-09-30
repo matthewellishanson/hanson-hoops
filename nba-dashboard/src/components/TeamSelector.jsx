@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../config.ts';
+import { api } from '../lib/api';
 
-// Season helpers (same pattern you used elsewhere)
+// Season helpers
 function currentNbaSeasonStartYear() {
   const now = new Date();
-  // Use October 15th as the season start date
   if (now.getMonth() > 9 || (now.getMonth() === 9 && now.getDate() >= 15)) {
     return now.getFullYear();
   }
@@ -35,7 +33,7 @@ export default function TeamSelector({ onSelect, initialSeason = null }) {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      axios.get(`${API_BASE}/teams`, {
+      api.get('/teams', {
         params: {
           search: search || undefined,
           limit,

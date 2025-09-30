@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
-import axios from 'axios';
-import { API_BASE } from '../config.ts';
+import { api } from '../lib/api';
 
-
-// Let react-plotly.js find Plotly on window (same pattern as your other charts)
+// Let react-plotly.js find Plotly on window
 if (typeof window !== 'undefined' && !window.Plotly) {
   window.Plotly = Plotly;
 }
@@ -20,7 +18,7 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
     (async () => {
       try {
         if (!teamId) return;
-        const { data } = await axios.get(`${API_BASE}/team_profile_stats`, {
+        const { data } = await api.get('/team_profile_stats', {
           params: { team_id: teamId, season }
         });
         if (alive) { setStats(data); setError(null); }
@@ -37,7 +35,6 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
   if (!stats) return <div>Loading team chart…</div>;
 
   // ------- TEAM view (normalized 0–100) -------
-  // Added Turnovers (lower is better). We label it clearly.
   const teamTheta = ['Points', 'Rebounds', 'Assists', 'Blocks', 'Steals', 'FG%', '3P%', 'Turnovers (↓ better)'];
   const teamR = [
     stats.points, stats.rebounds, stats.assists,
@@ -55,7 +52,6 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
   ];
 
   // ------- OPPONENT view (normalized 0–100) -------
-  // Expanded with AST, REB, FTM, FT%.
   const oppTheta = ['Opp Pts', 'Opp FG%', 'Opp 3P%', 'Opp AST', 'Opp REB', 'Opp FTM', 'Opp FT%'];
   const oppR = [
     stats.opp_points, stats.opp_fg_pct, stats.opp_fg3_pct,
@@ -99,7 +95,6 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {/* Simple toggle */}
       <div className="btn-group" role="group" aria-label="mode">
         <button
           type="button"

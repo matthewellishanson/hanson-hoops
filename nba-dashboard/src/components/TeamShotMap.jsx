@@ -1,12 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
-import axios from 'axios';
-import { API_BASE } from '../config.ts';
+import { api } from '../lib/api';
 
 if (typeof window !== 'undefined' && !window.Plotly) window.Plotly = Plotly;
 
-// ---- shared court ----
 function courtShapesWithoutArc() {
   const lineColor = '#0b3366';
   const lineW = 2;
@@ -43,7 +41,8 @@ export default function TeamShotMap({ teamId, season }) {
     let alive = true;
     (async () => {
       try {
-        const res = await axios.get(`${API_BASE}/team_profile_stats`, { params: { team_id: teamId, season } });
+        // This endpoint returns shots_for / shots_against
+        const res = await api.get('/team_shots', { params: { team_id: teamId, season } });
         if (alive) setData(res.data);
         setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       } catch (e) {
@@ -61,12 +60,11 @@ export default function TeamShotMap({ teamId, season }) {
 
   if (!data) return <div>Loading team shot maps…</div>;
 
-  const forMade = data.shots_for.filter(s => s.made);
-  const forMiss = data.shots_for.filter(s => !s.made);
-  const agMade  = data.shots_against.filter(s => s.made);
-  const agMiss  = data.shots_against.filter(s => !s.made);
+  const forMade = (data.shots_for || []).filter(s => s.made);
+  const forMiss = (data.shots_for || []).filter(s => !s.made);
+  const agMade  = (data.shots_against || []).filter(s => s.made);
+  const agMiss  = (data.shots_against || []).filter(s => !s.made);
 
-  // traces for each chart
   const makeTrace = (made, miss, nameMade, nameMiss) => ([
     { x: made.map(s => s.x), y: made.map(s => s.y), type: 'scattergl', mode: 'markers', name: nameMade,  marker: { size: 6, opacity: 0.8 } },
     { x: miss.map(s => s.x), y: miss.map(s => s.y), type: 'scattergl', mode: 'markers', name: nameMiss,  marker: { size: 6, opacity: 0.45 } },
@@ -77,13 +75,12 @@ export default function TeamShotMap({ teamId, season }) {
     showlegend: false,
     xaxis: { range: [-250, 250], visible: false, zeroline: false, showgrid: false, constrain: 'domain' },
     yaxis: { range: [-50, 500],  visible: false, zeroline: false, showgrid: false, scaleanchor: 'x', scaleratio: 1 },
-    margin: { t: 4, l: 4, r: 4, b: 4 },      // tighter than before
+    margin: { t: 4, l: 4, r: 4, b: 4 },
     shapes: courtShapesWithoutArc(),
     paper_bgcolor: 'white',
     plot_bgcolor: 'white',
     autosize: true,
   };
-
 
   const pill = (cls, title, s) => (
     <div className={`map-pill ${cls}`}>
@@ -124,5 +121,4 @@ export default function TeamShotMap({ teamId, season }) {
       </div>
     </div>
   );
-
 }

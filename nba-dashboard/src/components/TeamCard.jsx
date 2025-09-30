@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import TeamRadarChart from './TeamRadarChart';
 import TeamShotMap from './TeamShotMap';
-// Reuse PlayerCard styles for consistent look (or make a TeamCard.css)
+import { api } from '../lib/api';
 import '../PlayerCard.css';
 
 export default function TeamCard({ teamId, teamName, season, onReplace, style }) {
@@ -10,11 +10,9 @@ export default function TeamCard({ teamId, teamName, season, onReplace, style })
   const faceRef = useRef(null);
   const [bio, setBio] = useState(null);
 
-  // era check (shot locations available from 1996–97 onward)
   const startYear = Number((season || '').split('-')[0]);
   const eraHasShots = startYear >= 1996;
 
-  // Reset flip whenever the team changes
   useEffect(() => {
     setFlipped(false);
     setBackMounted(false);
@@ -22,14 +20,12 @@ export default function TeamCard({ teamId, teamName, season, onReplace, style })
     return () => clearTimeout(t);
   }, [teamId]);
 
-  // When flipped, mount the back once and nudge Plotly
   useEffect(() => {
     if (flipped) setBackMounted(true);
     const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 80);
     return () => clearTimeout(t);
   }, [flipped]);
 
-  // Resize observer (same pattern as PlayerCard)
   useEffect(() => {
     if (!faceRef.current) return;
     const ro = new ResizeObserver(() => {
@@ -39,26 +35,22 @@ export default function TeamCard({ teamId, teamName, season, onReplace, style })
     return () => ro.disconnect();
   }, []);
 
-  // Fetch team bio when teamId or season changes (age/record/standing can be season-relative)
+  // Fetch team bio
   useEffect(() => {
     let alive = true;
-    async function load() {
+    (async () => {
       try {
         if (!teamId) return;
-        const res = await fetch(
-          `http://localhost:8000/team_bio?team_id=${teamId}&season=${encodeURIComponent(season)}`
-        );
-        if (!res.ok) throw new Error('team bio fetch failed');
-        const data = await res.json();
+        const { data } = await api.get('/team_bio', {
+          params: { team_id: teamId, season },
+        });
         if (alive) setBio(data);
       } catch (e) {
         console.error('Error fetching team bio:', e);
         if (alive) setBio(null);
       }
-    }
-    load();
+    })();
 
-    // reset flip on team change
     setFlipped(false);
     setBackMounted(false);
     const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
@@ -72,13 +64,7 @@ export default function TeamCard({ teamId, teamName, season, onReplace, style })
         <div className="pcard-face pcard-front" ref={faceRef}>
           <TeamHeaderBar bio={bio} fallbackName={teamName} onReplace={onReplace} season={season} />
           <div className="chart-container">
-            {/* Force remount when team or season changes */}
-            <TeamRadarChart
-              key={`${teamId}-${season}`}
-              teamId={teamId}
-              season={season}
-              teamName={teamName}
-            />
+            <TeamRadarChart key={`${teamId}-${season}`} teamId={teamId} season={season} teamName={teamName} />
           </div>
           <div className="pcard-footer">
             <button
@@ -113,15 +99,14 @@ export default function TeamCard({ teamId, teamName, season, onReplace, style })
   );
 }
 
-/** Compact team header (mirrors Player header) */
 function TeamHeaderBar({ bio, fallbackName, onReplace, season }) {
   const name = bio?.name || fallbackName;
-  const logo = bio?.logo_url;                 // e.g., https://.../team_logos/1610612755.svg
-  const record = bio?.record;                 // e.g., "54–28"
-  const standing = bio?.standing;             // e.g., "2nd in East" or "5th Overall"
-  const coach = bio?.coach;                   // optional
-  const arena = bio?.arena;                   // optional
-  const seasonLabel = season;                 // show current card season
+  const logo = bio?.logo_url;
+  const record = bio?.record;
+  const standing = bio?.standing;
+  const coach = bio?.coach;
+  const arena = bio?.arena;
+  const seasonLabel = season;
 
   return (
     <div className="pcard-header">

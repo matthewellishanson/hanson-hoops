@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
-import axios from 'axios';
-import { API_BASE } from '../config.ts';
+import { api } from '../lib/api';
 
 // Let react-plotly.js find Plotly on window
 if (typeof window !== 'undefined' && !window.Plotly) {
@@ -18,13 +17,14 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
       try {
         if (!playerId) return;
         console.log('[Radar] fetching', { playerId, season });
-        const { data } = await axios.get(`${API_BASE}/player_profile_stats`, {
+        const { data } = await api.get('/player_profile_stats', {
           params: { player_id: playerId, season },
         });
         setStats(data);
         setError(null);
       } catch (e) {
         console.error(e);
+        setStats(null);
         setError('Player data unavailable.');
       }
     })();
@@ -42,11 +42,9 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
     stats.ft_rate, stats.ft_pct, stats.turnovers
   ];
 
-  // guard
   const allFinite = values.every(v => Number.isFinite(v));
   if (!allFinite) return <div>Data unavailable for this selection.</div>;
 
-  // Raw hover text
   const hoverText = [
     `Points: ${stats.raw_points} PPG`,
     `Rebounds: ${stats.raw_rebounds} RPG`,
@@ -55,7 +53,7 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
     `Steals: ${stats.raw_steals} SPG`,
     `FG%: ${stats.raw_fg_pct}%`,
     `3P%: ${stats.raw_fg3_pct}%`,
-    `FT Rate: ${stats.raw_ft_rate}%`,   // FTr displayed as percent
+    `FT Rate: ${stats.raw_ft_rate}%`,
     `FT%: ${stats.raw_ft_pct}%`,
     `Turnovers: ${stats.raw_tov} TOPG`,
   ];
@@ -84,7 +82,7 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
         autosize: true
       }}
       style={{ width: '100%', height: '100%' }}
-      useResizeHandler={true}
+      useResizeHandler
       config={{ responsive: true, displayModeBar: false }}
     />
   );
