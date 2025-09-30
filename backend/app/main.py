@@ -1,4 +1,3 @@
-# backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -6,8 +5,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # ← easiest way to prove CORS is your blocker
-    allow_credentials=False,      # keep False if you use "*"
+    allow_origins=["*"],       # keep '*' until we confirm it works
+    allow_credentials=False,   # must be False when using "*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -18,4 +17,8 @@ from app.api.endpoints.teams import router as teams_router
 
 app.include_router(players_router)
 app.include_router(teams_router)
+
+@app.get("/cors-test")
+def cors_test():
+    return {"ok": True}
 
