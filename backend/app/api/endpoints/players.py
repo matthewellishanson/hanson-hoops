@@ -14,6 +14,9 @@ from app.utils.dates import _age_at_season_start, _season_start_date
 from typing import List, Optional, Literal
 import pandas as pd
 from datetime import datetime, date
+import time
+import traceback
+from requests.exceptions import RequestException
 
 router = APIRouter()
 
@@ -82,36 +85,48 @@ def _height_to_cm_str(height_str: str | None) -> str | None:
     except Exception:
         return None
 
-@lru_cache(maxsize=512)
-def _fetch_player_bio(player_id: str) -> dict | None:
-    info = commonplayerinfo.CommonPlayerInfo(player_id=int(player_id)).get_data_frames()
-    if not info or len(info) == 0 or info[0].empty:
-        return None
+def _fetch_player_bio(player_id: str, retries: int = 3, backoff: float = 1.5) -> dict | None:
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            info = commonplayerinfo.CommonPlayerInfo(player_id=int(player_id)).get_data_frames()
+            if not info or len(info) == 0 or info[0].empty:
+                last_err = RuntimeError("empty CommonPlayerInfo")
+                time.sleep(backoff * attempt)
+                continue
 
-    df = info[0].iloc[0]
+            df = info[0].iloc[0]
+            name = df.get("DISPLAY_FIRST_LAST") or df.get("DISPLAY_FI_LAST") or df.get("PLAYER_NAME")
+            team = df.get("TEAM_NAME") or df.get("TEAM_ABBREVIATION")
+            position = df.get("POSITION")
+            height = df.get("HEIGHT")
+            weight = df.get("WEIGHT")
+            jersey = df.get("JERSEY")
+            birthdate = df.get("BIRTHDATE")
+            headshot_url = f"https://cdn.nba.com/headshots/nba/latest/260x190/{player_id}.png"
 
-    name = df.get("DISPLAY_FIRST_LAST") or df.get("DISPLAY_FI_LAST") or df.get("PLAYER_NAME")
-    team = df.get("TEAM_NAME") or df.get("TEAM_ABBREVIATION")
-    position = df.get("POSITION")
-    height = df.get("HEIGHT")
-    weight = df.get("WEIGHT")
-    jersey = df.get("JERSEY")
-    birthdate = df.get("BIRTHDATE")  # <- keep raw string from API
+            return {
+                "player_id": str(player_id),
+                "name": name,
+                "team": team,
+                "position": position,
+                "height": height,
+                "height_cm": _height_to_cm_str(height),
+                "weight_lbs": (int(weight) if isinstance(weight, (int, float, str)) and str(weight).isdigit() else None),
+                "jersey": jersey if jersey not in ("", None, "0") else None,
+                "birthdate": birthdate,
+                "headshot_url": headshot_url,
+            }
+        except RequestException as e:
+            last_err = e
+            time.sleep(backoff * attempt)
+        except Exception as e:
+            last_err = e
+            time.sleep(backoff * attempt)
 
-    headshot_url = f"https://cdn.nba.com/headshots/nba/latest/260x190/{player_id}.png"
-
-    return {
-        "player_id": str(player_id),
-        "name": name,
-        "team": team,
-        "position": position,
-        "height": height,
-        "height_cm": _height_to_cm_str(height),
-        "weight_lbs": (int(weight) if isinstance(weight, (int, float, str)) and str(weight).isdigit() else None),
-        "jersey": jersey if jersey not in ("", None, "0") else None,
-        "birthdate": birthdate,           # 👈 keep it so we can compute different ages on demand
-        "headshot_url": headshot_url,
-    }
+    print(f"[player_bio] failed for player_id={player_id}: {repr(last_err)}")
+    traceback.print_exc()
+    return None
 
 @router.get("/player_bio")
 def get_player_bio(
@@ -120,12 +135,10 @@ def get_player_bio(
 ):
     data = _fetch_player_bio(player_id)
     if not data:
-        raise HTTPException(status_code=404, detail="Player bio not found")
+        # Tell the frontend it's an upstream problem, not a CORS/route issue
+        raise HTTPException(status_code=502, detail="NBA upstream unavailable")
 
-    # compute age for the requested season (or today)
     age = _age_at_season_start(data.get("birthdate"), season)
-
-    # return the bio with the computed age; keep birthdate if you want, or drop it
     return {
         **data,
         "age": age,
@@ -339,3 +352,18 @@ def get_player_profile_stats(
             "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,
             "raw_fg_pct":0,"raw_fg3_pct":0,"raw_ft_rate":0,"raw_ft_pct":0,"raw_tov":0
         }
+
+
+# -------------------------
+# Debugging endpoint
+# -------------------------
+@router.get("/_debug/ping_nba")
+def ping_nba():
+    try:
+        test = commonplayerinfo.CommonPlayerInfo(player_id=2544).get_data_frames()
+        ok = bool(test and len(test) > 0 and not test[0].empty)
+        return {"ok": ok, "note": "CommonPlayerInfo(LeBron) fetched"}
+    except Exception as e:
+        print("[_debug/ping_nba]", repr(e))
+        traceback.print_exc()
+        return {"ok": False, "error": str(e)}

@@ -8,4 +8,5 @@ const API_BASE =
 export const api = axios.create({
   baseURL: 'https://hanson-hoops.onrender.com',
   timeout: 45000,
+  withCredentials: false,
 });
