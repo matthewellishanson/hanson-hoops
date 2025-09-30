@@ -42,7 +42,7 @@ export default function TeamShotMap({ teamId, season }) {
     (async () => {
       try {
         // This endpoint returns shots_for / shots_against
-        const res = await api.get('/team_profile_stats', { params: { team_id: teamId, season } });
+        const res = await api.get('/team_shots', { params: { team_id: teamId, season } });
         if (alive) setData(res.data);
         setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       } catch (e) {
