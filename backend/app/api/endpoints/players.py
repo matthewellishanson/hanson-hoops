@@ -16,7 +16,7 @@ import pandas as pd
 from datetime import datetime, date
 import time
 import traceback
-from requests.exceptions import RequestException
+from requests.exceptions import RequestException, ReadTimeout
 
 router = APIRouter()
 
@@ -85,15 +85,18 @@ def _height_to_cm_str(height_str: str | None) -> str | None:
     except Exception:
         return None
 
-def _fetch_player_bio(player_id: str, retries: int = 3, backoff: float = 1.5) -> dict | None:
+def _fetch_player_bio(player_id: str, retries: int = 5, backoff: float = 1.5) -> dict | None:
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            info = commonplayerinfo.CommonPlayerInfo(player_id=int(player_id)).get_data_frames()
+            info = commonplayerinfo.CommonPlayerInfo(
+                player_id=int(player_id),
+                timeout=60,  # <— per-call timeout, in addition to the global one
+            ).get_data_frames()
+
             if not info or len(info) == 0 or info[0].empty:
                 last_err = RuntimeError("empty CommonPlayerInfo")
-                time.sleep(backoff * attempt)
-                continue
+                raise last_err
 
             df = info[0].iloc[0]
             name = df.get("DISPLAY_FIRST_LAST") or df.get("DISPLAY_FI_LAST") or df.get("PLAYER_NAME")
@@ -117,16 +120,22 @@ def _fetch_player_bio(player_id: str, retries: int = 3, backoff: float = 1.5) ->
                 "birthdate": birthdate,
                 "headshot_url": headshot_url,
             }
-        except RequestException as e:
+
+        except (ReadTimeout, RequestException, RuntimeError) as e:
             last_err = e
-            time.sleep(backoff * attempt)
+            sleep = backoff * attempt
+            print(f"[player_bio] attempt {attempt}/{retries} failed ({e}); sleeping {sleep:.1f}s")
+            time.sleep(sleep)
         except Exception as e:
             last_err = e
-            time.sleep(backoff * attempt)
+            sleep = backoff * attempt
+            print(f"[player_bio] unexpected error attempt {attempt}/{retries}: {repr(e)}; sleeping {sleep:.1f}s")
+            time.sleep(sleep)
 
-    print(f"[player_bio] failed for player_id={player_id}: {repr(last_err)}")
+    print(f"[player_bio] giving up for player_id={player_id}: {repr(last_err)}")
     traceback.print_exc()
     return None
+
 
 @router.get("/player_bio")
 def get_player_bio(
