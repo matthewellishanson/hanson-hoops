@@ -18,7 +18,7 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
         if (!playerId) return;
         console.log('[Radar] fetching', { playerId, season });
         const { data } = await api.get('/player_profile_stats', {
-          params: { player_id: playerId, season },
+          params: { player_id: playerId, season }
         });
         setStats(data);
         setError(null);

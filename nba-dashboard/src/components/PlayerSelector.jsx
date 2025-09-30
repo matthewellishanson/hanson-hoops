@@ -42,7 +42,7 @@ export default function PlayerSelector({ onSelect, initialSeason = null }) {
           offset,
           sort: 'name',
           order: 'asc',
-        },
+        }
       })
       .then(res => {
         setPlayers(res.data.items || []);

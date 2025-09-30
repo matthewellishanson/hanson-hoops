@@ -41,7 +41,7 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
       try {
         if (!playerId) return;
         const { data } = await api.get('/player_bio', {
-          params: { player_id: playerId, season },
+          params: { player_id: playerId, season }
         });
         if (alive) setBio(data);
       } catch (e) {

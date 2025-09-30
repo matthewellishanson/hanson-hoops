@@ -40,7 +40,7 @@ export default function TeamSelector({ onSelect, initialSeason = null }) {
           offset,
           sort: 'name',
           order: 'asc',
-        },
+        }
       })
       .then(res => {
         setTeams(res.data.items || []);

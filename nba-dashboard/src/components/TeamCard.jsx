@@ -42,7 +42,7 @@ export default function TeamCard({ teamId, teamName, season, onReplace, style })
       try {
         if (!teamId) return;
         const { data } = await api.get('/team_bio', {
-          params: { team_id: teamId, season },
+          params: { team_id: teamId, season }
         });
         if (alive) setBio(data);
       } catch (e) {
