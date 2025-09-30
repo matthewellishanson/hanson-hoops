@@ -4,16 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-from fastapi.middleware.cors import CORSMiddleware
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://matthewellishanson.github.io",
-        "https://matthewellishanson.github.io/hanson-hoops",
-    ],
-    allow_credentials=False,
+    allow_origins=["*"],          # ← easiest way to prove CORS is your blocker
+    allow_credentials=False,      # keep False if you use "*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
