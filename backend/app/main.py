@@ -1,9 +1,22 @@
+import os
+
+_proxy = os.environ.get("PROXY_URL")
+if _proxy:
+    # Force-populate all the variants requests honors
+    os.environ["HTTP_PROXY"]  = _proxy
+    os.environ["HTTPS_PROXY"] = _proxy
+    os.environ["http_proxy"]  = _proxy
+    os.environ["https_proxy"] = _proxy
+    # (Optional) do not proxy Render's own domain and localhost
+    os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
+# --- end proxy bootstrap ---
+
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import os
 import requests
 
 app = FastAPI()
@@ -91,8 +104,13 @@ def _build_retrying_session() -> requests.Session:
         "Cache-Control": "no-cache",
     })
 
-    # Optional proxy (set in Render as env var NBA_STATS_PROXY, e.g. http://user:pass@host:port)
-    proxy = os.getenv("NBA_STATS_PROXY")
+    # Optional proxies: accept NBA_STATS_PROXY, PROXY_URL, or the standard *_PROXY envs
+    proxy = (
+        os.getenv("NBA_STATS_PROXY")
+        or os.getenv("PROXY_URL")
+        or os.getenv("HTTPS_PROXY")
+        or os.getenv("https_proxy")
+    )
     if proxy:
         s.proxies.update({"http": proxy, "https": proxy})
 
@@ -171,3 +189,62 @@ def outbound_ip():
     r = requests.get("https://httpbin.org/ip", timeout=20)
     return r.json()
 
+@app.get("/_debug/whoami")
+def whoami():
+    # Plain request (no proxies)
+    try:
+        plain = requests.get("https://httpbin.org/ip", timeout=10).json()
+    except Exception as e:
+        plain = {"error": str(e)}
+
+    # With proxies pulled from env (what requests will honor)
+    proxies = {
+        "http":  os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
+        "https": os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
+    }
+    try:
+        via_proxy = requests.get("https://httpbin.org/ip", timeout=20, proxies=proxies).json()
+    except Exception as e:
+        via_proxy = {"error": str(e)}
+
+    return {
+        "env": {
+            "HTTP_PROXY":  os.environ.get("HTTP_PROXY"),
+            "HTTPS_PROXY": os.environ.get("HTTPS_PROXY"),
+            "NO_PROXY":    os.environ.get("NO_PROXY"),
+        },
+        "plain_ip": plain,
+        "proxy_ip": via_proxy,
+    }
+
+
+@app.get("/_debug/ping_nba_raw")
+def ping_nba_raw():
+    """
+    Call stats.nba.com WITHOUT nba_api to test headers+proxy directly.
+    """
+    headers = {
+        # real-world headers that Cloudflare accepts for stats.nba.com
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/125.0.0.0 Safari/537.36"),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.nba.com/",
+        "Origin": "https://www.nba.com",
+        "Connection": "keep-alive",
+    }
+    proxies = {
+        "http":  os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
+        "https": os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
+    }
+    try:
+        r = requests.get(
+            "https://stats.nba.com/stats/commonplayerinfo",
+            params={"PlayerID": "2544", "LeagueID": ""},
+            headers=headers,
+            proxies=proxies,
+            timeout=25,
+        )
+        return {"ok": True, "status": r.status_code, "length": len(r.content)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
