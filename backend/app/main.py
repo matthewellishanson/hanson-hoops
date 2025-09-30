@@ -165,3 +165,9 @@ app.include_router(teams_router)
 def cors_test():
     return {"ok": True}
 
+@app.get("/_debug/outbound_ip")
+def outbound_ip():
+    # requests respects HTTPS_PROXY/HTTP_PROXY in env automatically
+    r = requests.get("https://httpbin.org/ip", timeout=20)
+    return r.json()
+
