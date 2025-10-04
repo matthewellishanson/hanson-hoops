@@ -1,0 +1,56 @@
+.player-dashboard {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  justify-items: center;    /* ✅ Center cards in grid cells */
+}
+
+.grid-2x2 {
+  grid-template-columns: repeat(2, 1fr);  /* ✅ Two cards per row */
+}
+
+.add-player-card {
+  border: 2px dashed green;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  min-width: 250px;
+  cursor: pointer;
+  background: #f9f9f9;
+}
+.grid-1x2 {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.player-card-container {
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 8px;
+  position: relative;
+  background: white;
+}
+
+.remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: red;
+  font-weight: bold;
+  cursor: pointer;
+}
+.chart-container {
+  width: 100%;
+  height: 300px; /* Match the fixed height in Card */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chart-container .js-plotly-plot {
+  width: 100% !important;
+  height: 100% !important;
+}

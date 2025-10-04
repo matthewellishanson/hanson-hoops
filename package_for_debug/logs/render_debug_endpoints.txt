@@ -1,0 +1,6 @@
+https://hanson-hoops.onrender.com/_debug/ping_nba_raw:
+{"ok":false,"error":"HTTPSConnectionPool(host='stats.nba.com', port=443): Max retries exceeded with url: /stats/commonplayerinfo?LeagueID=&PlayerID=2544 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 307 Temporary Redirect')))"}
+
+https://hanson-hoops.onrender.com/_debug/whoami:
+{"env":{"HTTP_PROXY":"http://user:pass@precongested-distichously-ferdinand.ngrok-free.dev","HTTPS_PROXY":"http://user:pass@precongested-distichously-ferdinand.ngrok-free.dev","NO_PROXY":"http://user:pass@precongested-distichously-ferdinand.ngrok-free.dev"},"plain_ip":{"error":"HTTPSConnectionPool(host='httpbin.org', port=443): Max retries exceeded with url: /ip (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 307 Temporary Redirect')))"},"proxy_ip":{"error":"HTTPSConnectionPool(host='httpbin.org', port=443): Max retries exceeded with url: /ip (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 307 Temporary Redirect')))"}}
+

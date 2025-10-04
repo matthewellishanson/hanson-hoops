@@ -1,0 +1,197 @@
+.player-card-container {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  height: 350px;         /* Fixed height for uniform cards */
+  overflow: hidden;      /* Prevent chart overflow */
+}
+
+.flip-container {
+  perspective: 1000px;
+  height: 100%;
+}
+.flipper {
+  position: relative;
+  transition: 0.6s;
+  transform-style: preserve-3d;
+  height: 100%;
+}
+.flip-container.flipped .flipper {
+  transform: rotateY(180deg);
+}
+.front, .back {
+  backface-visibility: hidden;
+  position: absolute;
+  inset: 0;
+}
+.back {
+  transform: rotateY(180deg);
+}
+
+.pcard {
+  position: relative;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  width: 100%;
+  height: var(--card-h, 440px);  /* ⬅️ controlled by dashboard */
+  background: #fff;
+  perspective: 1000px;
+  overflow: hidden;
+}
+
+/* Flip wrapper */
+.pcard-flip {
+  position: relative; height: 100%;
+  transform-style: preserve-3d; transition: transform .6s;
+}
+.pcard-flip.is-flipped { transform: rotateY(180deg); }
+
+
+/* Faces fill the card */
+.pcard-face {
+  position: absolute; inset: 0;
+  backface-visibility: hidden;
+  display: grid;
+  grid-template-rows: min-content minmax(0,1fr) min-content;
+  padding: 12px;
+}
+.pcard-front { transform: rotateY(0deg);  z-index: 2; }
+.pcard-back  { transform: rotateY(180deg); z-index: 1; }
+
+
+/* Header bar that appears on both faces */
+.pcard-header {
+  display: grid;
+  grid-template-columns: 1fr auto auto; /* left info | meta | replace btn */
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.pcard-header-left {
+  display: grid;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.pcard-headshot {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #f1f5f9;
+}
+.pcard-headshot.placeholder {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: #e5e7eb;
+}
+
+.pcard-titleblock {
+  min-width: 0;
+}
+.pcard-title {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.pcard-sub {
+  font-size: 0.85rem;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* right-side meta chips */
+.pcard-meta {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  font-size: 0.85rem;
+  color: #374151;
+}
+
+@media (max-width: 768px) {
+  .pcard-header {
+    grid-template-columns: 1fr auto; /* stack meta under left or shrink */
+  }
+  .pcard-meta {
+    justify-items: start;
+  }
+}
+
+/* middle row: give it real height and stop centering/boxing the child */
+.chart-container {
+  display: block;        /* was flex */
+  height: 100%;          /* ensure the middle grid row is fully utilized */
+  min-height: 0;         /* allow children to shrink within the grid track */
+  overflow: hidden;      /* fine to keep */
+}
+
+/* keep the old “make Plotly fill” helpers, but limit them to this card */
+.pcard .chart-container .plot-container,
+.pcard .chart-container .svg-container,
+.pcard .chart-container .js-plotly-plot {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+@media (max-width: 576px) { .pcard { height: 380px; } }
+
+/* Two maps side-by-side on desktop, stacked on mobile */
+.shotmaps-grid {
+  display: grid;
+  gap: 8px;
+  height: 100%;
+  grid-auto-rows: 1fr;          /* each row fills available height */
+}
+
+@media (min-width: 768px) {
+  .shotmaps-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 767px) {
+  .shotmaps-grid { grid-template-columns: 1fr; }
+}
+
+/* Make the cell and everything inside truly fill the space */
+.map-wrap { 
+  position: relative;
+  height: 100%;                 /* was min-height: 100% -> causes overflow */
+}
+
+/* Ensure Plotly respects the cell size */
+.map-wrap .js-plotly-plot,
+.map-wrap .plot-container,
+.map-wrap .svg-container {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* bold, colorful season summary pills */
+.map-pill {
+  position: absolute;
+  z-index: 3;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,.15);
+  user-select: none;
+}
+
+.map-pill.for {
+  background: #07bed3;
+  color: #fff;
+  top: 8px; left: 8px;
+}
+
+.map-pill.against {
+  background: #e63e5a;
+  color: #fff;
+  top: 8px; right: 8px;
+}

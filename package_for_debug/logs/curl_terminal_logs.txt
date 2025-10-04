@@ -1,0 +1,74 @@
+(.venv) PS C:\Users\mehan\Documents\Basketball\hanson-hoops> curl.exe -I -H "Origin: https://matthewellishanson.github.io" "https://hanson-hoops.onrender.com/player_bio?player_id=2544&season=2023-24"
+HTTP/1.1 405 Method Not Allowed
+Date: Sat, 04 Oct 2025 21:40:17 GMT
+Content-Type: application/json
+Connection: keep-alive
+access-control-allow-origin: *
+allow: GET
+rndr-id: a2a33c95-60ae-45b3
+vary: Origin
+vary: Accept-Encoding
+x-render-origin-server: uvicorn
+cf-cache-status: DYNAMIC
+Server: cloudflare
+CF-RAY: 9897d637bcb14750-DFW
+alt-svc: h3=":443"; ma=86400
+
+(.venv) PS C:\Users\mehan\Documents\Basketball\hanson-hoops> curl.exe -v "https://hanson-hoops.onrender.com/_debug/ping_nba_raw"
+* Host hanson-hoops.onrender.com:443 was resolved.
+* IPv6: (none)
+* IPv4: 216.24.57.251, 216.24.57.7
+*   Trying 216.24.57.251:443...
+* schannel: disabled automatic use of client certificate
+* ALPN: curl offers http/1.1
+* ALPN: server accepted http/1.1
+* Connected to hanson-hoops.onrender.com (216.24.57.251) port 443
+* using HTTP/1.x
+> GET /_debug/ping_nba_raw HTTP/1.1
+> Host: hanson-hoops.onrender.com
+> User-Agent: curl/8.14.1
+> Accept: */*
+>
+* Request completely sent off
+* schannel: remote party requests renegotiation
+* schannel: renegotiating SSL/TLS connection
+* schannel: SSL/TLS connection renegotiated
+< HTTP/1.1 200 OK
+< Date: Sat, 04 Oct 2025 21:41:07 GMT
+< Content-Type: application/json
+< Transfer-Encoding: chunked
+< Connection: keep-alive
+< access-control-allow-origin: *
+< rndr-id: 426a1da2-385f-478c
+< vary: Origin
+< vary: Accept-Encoding
+< x-render-origin-server: uvicorn
+< cf-cache-status: DYNAMIC
+< Server: cloudflare
+< CF-RAY: 9897d7705cada0c7-DFW
+< alt-svc: h3=":443"; ma=86400
+<
+{"ok":false,"error":"HTTPSConnectionPool(host='stats.nba.com', port=443): Max retries exceeded with url: /stats/commonplayerinfo?PlayerID=2544&LeagueID= (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 307 Temporary Redirect')))"}* Connection #0 to host hanson-hoops.onrender.com left intact
+(.venv) PS C:\Users\mehan\Documents\Basketball\hanson-hoops> curl.exe -v "https://stats.nba.com/stats/commonplayerinfo?PlayerID=2544&LeagueID="
+                                                                                                                                              * Host stats.nba.com:443 was resolved.
+* IPv6: 2600:1404:a00:28c::1f51, 2600:1404:a00:28d::1f51
+* IPv4: 23.60.60.5
+*   Trying [2600:1404:a00:28c::1f51]:443...
+*   Trying 23.60.60.5:443...
+* schannel: disabled automatic use of client certificate
+* ALPN: curl offers http/1.1
+* ALPN: server accepted http/1.1
+* Connected to stats.nba.com (2600:1404:a00:28c::1f51) port 443
+* using HTTP/1.x
+> GET /stats/commonplayerinfo?PlayerID=2544&LeagueID= HTTP/1.1
+> Host: stats.nba.com
+> User-Agent: curl/8.14.1
+> Accept: */*
+>
+* Request completely sent off
+* schannel: remote party requests renegotiation
+* schannel: renegotiating SSL/TLS connection
+* schannel: SSL/TLS connection renegotiated
+* schannel: remote party requests renegotiation
+* schannel: renegotiating SSL/TLS connection
+* schannel: SSL/TLS connection renegotiated
