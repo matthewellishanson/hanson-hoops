@@ -1,0 +1,1663 @@
+# backend/Dockerfile
+
+FROM python:3.12-slim
+
+# System deps (optional but good for pandas/numpy/http)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Workdir inside the image
+WORKDIR /app
+
+# Install deps first (better layer caching)
+COPY backend/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy your backend code into /app
+# IMPORTANT: this places the "app" package at /app/app so "app.main:app" imports work
+COPY backend /app
+
+# Let Render tell us which port to use (defaults to 8000 locally)
+ENV PORT=8000
+
+# Start FastAPI
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+
+# backend/app/models/schemas.py
+from pydantic import BaseModel
+from typing import List, Optional
+
+class PlayerProfileStats(BaseModel):
+    # normalized (0–100)
+    points: float
+    rebounds: float
+    assists: float
+    blocks: float
+    steals: float
+    fg_pct: float
+    fg3_pct: float
+
+    # raw
+    raw_points: Optional[float] = None
+    raw_rebounds: Optional[float] = None
+    raw_assists: Optional[float] = None
+    raw_blocks: Optional[float] = None
+    raw_steals: Optional[float] = None
+    raw_fg_pct: Optional[float] = None
+    raw_fg3_pct: Optional[float] = None
+
+
+
+class GameStat(BaseModel):
+    game_date: str
+    points: int
+
+class Player(BaseModel):
+    id: str
+    name: str
+
+class ShotEvent(BaseModel):
+    x: float
+    y: float
+    made: bool
+    shot_zone: Optional[str] = None
+    shot_distance: Optional[float] = None
+
+class PlayerShotsResponse(BaseModel):
+    player_id: str
+    season: str
+    total: int
+    makes: int
+    attempts: int
+    shots: List[ShotEvent]
+
+class PlayerBio(BaseModel):
+    id: str
+    name: str
+    team: str | None = None
+    jersey: str | None = None
+    position: str | None = None
+    height: str | None = None          # e.g. "6-8"
+    height_cm: float | None = None
+    weight_lbs: float | None = None
+    age: float | None = None
+    headshot_url: str | None = None
+    # Placeholders for future sources (not in nba_api)
+    contract_years: int | None = None
+    salary_usd: int | None = None
+
+# backend/app/utils/seasons.py
+from datetime import datetime, date
+
+"""Utility functions for handling NBA seasons.
+"""
+def format_season(year_or_season):
+    """
+    Converts '2023' -> '2023-24'
+    Passes through if already formatted like '2023-24'
+    """
+    s = str(year_or_season).strip()
+    if "-" in s:
+        return s
+    if len(s) == 4 and s.isdigit():
+        return f"{s}-{str((int(s)+1) % 100).zfill(2)}"
+    raise ValueError("Invalid season format")
+
+def current_nba_season() -> str:
+    """
+    Returns the current NBA season label like '2024-25'.
+    Uses October 15 as the season turnover (first day of NBA season).
+    """
+    # Treat October 15 and later as new season start
+    today = date.today()
+    if today.month > 10 or (today.month == 10 and today.day >= 15):
+        start = today.year
+    else:
+        start = today.year - 1
+    return f"{start}-{str((start + 1) % 100).zfill(2)}"
+
+# backend/app/utils/normalize.py
+#
+# Utility functions to normalize basketball stats (player or team)
+# into a consistent 0–100 scale for radar chart visualization.
+#
+# Why normalize?
+#   - Raw values (e.g. 115 team PPG vs. 28 player PPG) live on very different scales.
+#   - Radar charts need a common 0–100 axis to compare categories fairly.
+#   - We pick realistic “elite ceilings” for both player and team stats so charts
+#     reflect relative strength without one stat dwarfing the others.
+
+import math
+
+# ---------------------------
+# Low-level helpers
+# ---------------------------
+
+def _safe_float(x, default=0.0):
+    """Convert input to float safely."""
+    try:
+        v = float(x)
+        if math.isnan(v) or math.isinf(v):
+            return default
+        return v
+    except (TypeError, ValueError):
+        return default
+
+def _norm(value, cap):
+    """Normalize value to 0–100 given a ceiling (cap)."""
+    v = _safe_float(value, 0.0)
+    v = max(0.0, min(v, float(cap)))
+    return round((v / float(cap)) * 100.0, 1)
+
+def _norm_inv(value, cap):
+    """Inverse normalize (lower is better): 0 → 100, cap → 0."""
+    v = _safe_float(value, 0.0)
+    v = max(0.0, min(v, float(cap)))
+    return round((1.0 - (v / float(cap))) * 100.0, 1)
+
+def _pct_to_100(v):
+    """Accepts 0–1 ratios or 0–100 percentages and returns 0–100."""
+    f = _safe_float(v, 0.0)
+    return f * 100.0 if 0.0 <= f <= 1.0 else f
+
+def _get(raw, *keys, default=0.0):
+    """Fetch the first present key from a dict (supports TEAM_* and plain)."""
+    for k in keys:
+        if k in raw and raw[k] is not None:
+            return raw[k]
+    return default
+
+# ---------------------------
+# Normalization ceilings
+# ---------------------------
+
+PLAYER_CEIL = {
+    'PTS': 50,
+    'REB': 18,
+    'AST': 12,
+    'BLK': 4.5,
+    'STL': 3.5,
+    'FG_PCT': 65,
+    'FG3_PCT': 45,
+    'FT_PCT': 95,   # player FT% ceiling
+    'TOV': 8,       # inverse scale (lower is better)
+    'FTR': 70,      # FT Rate ceiling, as a percent (i.e., 70%); typical stars 20–50%
+}
+
+TEAM_CEIL = {
+    'PTS': 135,
+    'REB': 60,
+    'AST': 40,
+    'BLK': 20,
+    'STL': 18,
+    'FG_PCT': 60,
+    'FG3_PCT': 50,
+    # new ceilings used if you choose to emit extras
+    'FTM': 35,     # teams ~10–25, cap at 35
+    'FT_PCT': 90,  # team % ceiling
+    'TOV': 20,     # inverse (lower is better)
+}
+
+# ---------------------------
+# Main entrypoint
+# ---------------------------
+
+def normalize_stats(raw: dict, kind: str = "player") -> dict:
+    """
+    Normalize stats for radar charts.
+
+    Parameters
+    ----------
+    raw : dict
+        Player stats: {'PTS','REB','AST','FG_PCT',...}
+        Team stats:   {'TEAM_PTS','TEAM_REB',...}
+        Percentages may be ratios (0–1) or % values (0–100).
+
+    kind : "player" | "team"
+        If not provided, auto-detect by TEAM_* key presence.
+
+    Returns
+    -------
+    dict :
+        {
+          'points','rebounds','assists','blocks','steals','fg_pct','fg3_pct',
+          # optional extras (returned if present in input):
+          'ftm','ft_pct','turnovers'
+        }
+    """
+    if kind not in ("player", "team"):
+        kind = "team" if any(k.startswith("TEAM_") for k in raw.keys()) else "player"
+
+    CEIL = TEAM_CEIL if kind == "team" else PLAYER_CEIL
+
+    pts = _safe_float(_get(raw, 'TEAM_PTS', 'PTS'))
+    reb = _safe_float(_get(raw, 'TEAM_REB', 'REB'))
+    ast = _safe_float(_get(raw, 'TEAM_AST', 'AST'))
+    blk = _safe_float(_get(raw, 'TEAM_BLK', 'BLK'))
+    stl = _safe_float(_get(raw, 'TEAM_STL', 'STL'))
+
+    fg_pct  = _pct_to_100(_get(raw, 'TEAM_FG_PCT', 'FG_PCT'))
+    fg3_pct = _pct_to_100(_get(raw, 'TEAM_FG3_PCT', 'FG3_PCT'))
+
+    out = {
+        'points':   _norm(pts, CEIL['PTS']),
+        'rebounds': _norm(reb, CEIL['REB']),
+        'assists':  _norm(ast, CEIL['AST']),
+        'blocks':   _norm(blk, CEIL['BLK']),
+        'steals':   _norm(stl, CEIL['STL']),
+        'fg_pct':   _norm(fg_pct,  CEIL['FG_PCT']),
+        'fg3_pct':  _norm(fg3_pct, CEIL['FG3_PCT']),
+    }
+
+    # Optional extras: only include if provided in raw
+    if 'TEAM_FTM' in raw or 'FTM' in raw:
+        ftm = _safe_float(_get(raw, 'TEAM_FTM', 'FTM'))
+        out['ftm'] = _norm(ftm, CEIL['FTM'])
+    if 'TEAM_FT_PCT' in raw or 'FT_PCT' in raw:
+        ft_pct = _pct_to_100(_get(raw, 'TEAM_FT_PCT', 'FT_PCT'))
+        out['ft_pct'] = _norm(ft_pct, CEIL['FT_PCT'])
+    if 'TEAM_TOV' in raw or 'TOV' in raw:
+        tov = _safe_float(_get(raw, 'TEAM_TOV', 'TOV'))
+        out['turnovers'] = _norm_inv(tov, CEIL['TOV'])
+
+    # Optional extras (players)
+    if kind == "player":
+        # FT% (0–100 or 0–1)
+        if 'FT_PCT' in raw:
+            from_pct = _pct_to_100(raw['FT_PCT'])
+            out['ft_pct'] = _norm(from_pct, CEIL['FT_PCT'])
+        # Turnovers (inverse)
+        if 'TOV' in raw:
+            out['turnovers'] = _norm_inv(raw['TOV'], CEIL['TOV'])
+        # Free-throw rate (as %; accept 0–1 or 0–100)
+        if 'FTR' in raw:
+            ftr_pct = _pct_to_100(raw['FTR'])
+            out['ft_rate'] = _norm(ftr_pct, CEIL['FTR'])
+
+    return out
+
+# backend/app/utils/dates.py
+from datetime import datetime, date
+
+def _parse_birthdate_iso(birthdate_str: str | None) -> date | None:
+    """NBA API birthdate example: '1984-12-30T00:00:00' (sometimes with 'Z')."""
+    if not birthdate_str:
+        return None
+    try:
+        return datetime.fromisoformat(birthdate_str.replace("Z", "")).date()
+    except Exception:
+        return None
+
+def _season_start_date(season_fmt: str) -> date:
+    """
+    Convert 'YYYY-YY' -> season start date.
+    We’ll use Oct 1 as a stable anchor (preseason/early regular season window).
+    Adjust if you want Sep 1 instead; you used Sep logic on the frontend already.
+    """
+    start_year = int(season_fmt.split("-")[0])
+    return date(start_year, 10, 1)  # Oct 1 of the start year
+
+def _age_on(born: date, asof: date) -> int:
+    """Age in whole years at a given reference date."""
+    return asof.year - born.year - ((asof.month, asof.day) < (born.month, born.day))
+
+def _age_at_season_start(birthdate_str: str | None, season: str | None) -> int | None:
+    """
+    If season provided -> age as of season start.
+    If season omitted -> age as of *today* (keeps old behavior).
+    """
+    born = _parse_birthdate_iso(birthdate_str)
+    if not born:
+        return None
+    if season:
+        # format_season lets you pass “2024” or “2024-25”
+        from .seasons import format_season
+        season_fmt = format_season(season)
+        asof = _season_start_date(season_fmt)
+    else:
+        asof = date.today()
+    return _age_on(born, asof)
+
+# backend/app/main.py
+import os
+
+_proxy = os.environ.get("PROXY_URL")
+if _proxy:
+    # Force-populate all the variants requests honors
+    os.environ["HTTP_PROXY"]  = _proxy
+    os.environ["HTTPS_PROXY"] = _proxy
+    os.environ["http_proxy"]  = _proxy
+    os.environ["https_proxy"] = _proxy
+    # (Optional) do not proxy Render's own domain and localhost
+    os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
+# --- end proxy bootstrap ---
+
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from starlette.middleware.cors import CORSMiddleware
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import requests
+
+app = FastAPI()
+
+# existing CORSMiddleware — keep it
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],          # (you can lock to your GH pages origin later)
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# guarantee the header on ALL responses
+@app.middleware("http")
+async def add_cors_header_everywhere(request: Request, call_next):
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        # ensure even error responses include CORS
+        response = JSONResponse({"detail": "internal error"}, status_code=500)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Vary"] = "Origin"
+    return response
+
+# Set custom headers for nba_api requests to avoid 403 errors
+try:
+    from nba_api.stats.library.http import NBAStatsHTTP
+    # Update the default headers used by nba_api
+    NBAStatsHTTP._DEFAULT_HEADERS.update({
+        "User-Agent": (
+            # any modern UA; keep it realistic
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://www.nba.com",
+        "Referer": "https://www.nba.com/",
+        "x-nba-stats-origin": "stats",
+        "x-nba-stats-token": "true",
+        "Connection": "keep-alive",
+    })
+except Exception as e:
+    print("[startup] failed to set NBAStatsHTTP headers:", e)
+
+# --- BEGIN robust nba_api HTTP patch (version-agnostic) ---
+
+try:
+    from nba_api.stats.library.http import NBAStatsHTTP
+except Exception as e:
+    NBAStatsHTTP = None
+    print("[startup] nba_api import failed:", e)
+
+def _build_retrying_session() -> requests.Session:
+    s = requests.Session()
+
+    # Retry/backoff
+    retry = Retry(
+        total=6,
+        connect=3,
+        read=3,
+        backoff_factor=1.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "HEAD", "OPTIONS"],
+        raise_on_status=False,
+        respect_retry_after_header=True,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=50, pool_maxsize=50)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+
+    # Browser-ish headers that NBA expects
+    s.headers.update({
+        "User-Agent": os.getenv("NBA_USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                                  "Chrome/124.0 Safari/537.36"),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://www.nba.com",
+        "Referer": "https://www.nba.com/stats/",
+        "Connection": "keep-alive",
+        "Pragma": "no-cache",
+        "Cache-Control": "no-cache",
+    })
+
+    # Optional proxies: accept NBA_STATS_PROXY, PROXY_URL, or the standard *_PROXY envs
+    proxy = (
+        os.getenv("NBA_STATS_PROXY")
+        or os.getenv("PROXY_URL")
+        or os.getenv("HTTPS_PROXY")
+        or os.getenv("https_proxy")
+    )
+    if proxy:
+        s.proxies.update({"http": proxy, "https": proxy})
+
+    return s
+
+def _patch_nba_api():
+    if NBAStatsHTTP is None:
+        return
+
+    # Increase default timeouts where possible
+    for attr in ("_DEFAULT_TIMEOUT", "timeout", "DEFAULT_TIMEOUT"):
+        if hasattr(NBAStatsHTTP, attr):
+            try:
+                setattr(NBAStatsHTTP, attr, 60)  # 60s read timeout
+                print(f"[startup] set NBAStatsHTTP.{attr}=60")
+            except Exception as e:
+                print(f"[startup] failed to set {attr}:", e)
+
+    # Some versions keep a class- or module-level Session; some build per instance.
+    # We patch both paths:
+
+    # 1) If a class/session attribute exists, replace it.
+    for cand in ("_SESSION", "SESSION", "session"):
+        if hasattr(NBAStatsHTTP, cand):
+            try:
+                setattr(NBAStatsHTTP, cand, _build_retrying_session())
+                print(f"[startup] replaced NBAStatsHTTP.{cand} with retrying Session")
+                break
+            except Exception as e:
+                print(f"[startup] failed to replace {cand}:", e)
+
+    # 2) Wrap __init__ to force a retrying session on each instance (covers per-instance sessions)
+    orig_init = getattr(NBAStatsHTTP, "__init__", None)
+
+    def patched_init(self, *args, **kwargs):
+        if orig_init:
+            orig_init(self, *args, **kwargs)
+        # set any likely session attributes on the instance
+        sess = _build_retrying_session()
+        applied = False
+        for cand in ("session", "_session", "SESSION"):
+            if hasattr(self, cand) or cand in ("session", "_session"):
+                try:
+                    setattr(self, cand, sess)
+                    applied = True
+                    # don’t break; try to set multiple names if they exist
+                except Exception:
+                    pass
+        if not applied:
+            # As a fallback, stash it; later calls may look it up
+            setattr(self, "__retry_session__", sess)
+
+    try:
+        setattr(NBAStatsHTTP, "__init__", patched_init)
+        print("[startup] wrapped NBAStatsHTTP.__init__ for retrying Session")
+    except Exception as e:
+        print("[startup] failed to wrap NBAStatsHTTP.__init__:", e)
+
+_patch_nba_api()
+# --- END robust nba_api HTTP patch ---
+
+# ⬇️ import routers here ⬇️
+from app.api.endpoints.players import router as players_router
+from app.api.endpoints.teams import router as teams_router
+
+app.include_router(players_router)
+app.include_router(teams_router)
+
+@app.get("/cors-test")
+def cors_test():
+    return {"ok": True}
+
+@app.get("/_debug/outbound_ip")
+def outbound_ip():
+    # requests respects HTTPS_PROXY/HTTP_PROXY in env automatically
+    r = requests.get("https://httpbin.org/ip", timeout=20)
+    return r.json()
+
+@app.get("/_debug/whoami")
+def whoami():
+    # Plain request (no proxies)
+    try:
+        plain = requests.get("https://httpbin.org/ip", timeout=10).json()
+    except Exception as e:
+        plain = {"error": str(e)}
+
+    # With proxies pulled from env (what requests will honor)
+    proxies = {
+        "http":  os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
+        "https": os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
+    }
+    try:
+        via_proxy = requests.get("https://httpbin.org/ip", timeout=20, proxies=proxies).json()
+    except Exception as e:
+        via_proxy = {"error": str(e)}
+
+    return {
+        "env": {
+            "HTTP_PROXY":  os.environ.get("HTTP_PROXY"),
+            "HTTPS_PROXY": os.environ.get("HTTPS_PROXY"),
+            "NO_PROXY":    os.environ.get("NO_PROXY"),
+        },
+        "plain_ip": plain,
+        "proxy_ip": via_proxy,
+    }
+
+
+@app.get("/_debug/ping_nba_raw")
+def ping_nba_raw():
+    """
+    Call stats.nba.com WITHOUT nba_api to test headers+proxy directly.
+    """
+    headers = {
+        # real-world headers that Cloudflare accepts for stats.nba.com
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/125.0.0.0 Safari/537.36"),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.nba.com/",
+        "Origin": "https://www.nba.com",
+        "Connection": "keep-alive",
+    }
+    proxies = {
+        "http":  os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
+        "https": os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
+    }
+    try:
+        r = requests.get(
+            "https://stats.nba.com/stats/commonplayerinfo",
+            params={"PlayerID": "2544", "LeagueID": ""},
+            headers=headers,
+            proxies=proxies,
+            timeout=25,
+        )
+        return {"ok": True, "status": r.status_code, "length": len(r.content)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+# backend/app/api/endpoints/teams.py
+from fastapi import APIRouter, Query, HTTPException, Body
+from functools import lru_cache
+from typing import List, Optional, Literal
+import time
+import pandas as pd
+import logging
+import inspect
+from requests.exceptions import ReadTimeout
+from nba_api.stats.endpoints import (
+    shotchartdetail,
+    leaguedashteamstats,
+    teamdashboardbygeneralsplits,
+    teamgamelog,
+)
+from nba_api.stats.static import teams as static_teams
+from ...utils.seasons import format_season, current_nba_season
+from ...utils.normalize import normalize_stats
+
+router = APIRouter()
+
+# ---------------------------
+# Helpers
+# ---------------------------
+
+def _pct100(x):
+    """Accept 0–1 or 0–100 and return % in 0–100."""
+    try:
+        f = float(x)
+        return f * 100.0 if 0.0 <= f <= 1.0 else f
+    except Exception:
+        return 0.0
+
+
+def _minmax_inv(value: float, mn: float, mx: float) -> float:
+    """
+    Map value to 0..100 using (mx - v)/(mx - mn).
+    Clamps safely and rounds to 1dp.
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if mx <= mn:
+        return 0.0
+    v = min(max(v, mn), mx)
+    return round(((mx - v) / (mx - mn)) * 100.0, 1)
+
+
+def _invert_cap(value: float, cap: float) -> float:
+    """
+    Normalize where lower is better (e.g., turnovers).
+    Returns 0–100 with 100 = 0 (perfect), 0 = cap (worst).
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        v = 0.0
+    v = max(0.0, min(v, float(cap)))
+    return round((1.0 - (v / float(cap))) * 100.0, 1)
+
+
+def _team_pg_from_gamelog(team_id: int, season_fmt: str) -> dict:
+    """
+    Compute per-game from TeamGameLog by rolling up game totals.
+    Returns floats (not rounded) so caller can round as desired.
+
+    Keys returned:
+      PTS, REB, AST, STL, BLK, FG_PCT, FG3_PCT, FTM, FT_PCT, TOV
+      OPP_PTS (if present), OPP_FG_PCT/OPP_FG3_PCT (if we can compute)
+    """
+    try:
+        gl_kwargs = dict(
+            team_id=team_id,
+            season=season_fmt,
+            season_type_all_star="Regular Season",
+        )
+        try:
+            sig = inspect.signature(teamgamelog.TeamGameLog.__init__)
+        except (TypeError, ValueError):
+            sig = None
+        if sig is not None:
+            params = sig.parameters
+            if "league_id_nullable" in params:
+                gl_kwargs["league_id_nullable"] = "00"
+            elif "league_id" in params:
+                gl_kwargs["league_id"] = "00"
+
+        gl = teamgamelog.TeamGameLog(**gl_kwargs).get_data_frames()[0]
+        if "TEAM_ID" in gl.columns:
+            gl = gl[gl["TEAM_ID"] == int(team_id)].copy()
+
+        df = gl.copy()
+
+        # means of game totals
+        out = {
+            "PTS": float(df["PTS"].astype(float).mean()),
+            "REB": float(df["REB"].astype(float).mean()),
+            "AST": float(df["AST"].astype(float).mean()),
+            "STL": float(df["STL"].astype(float).mean()),
+            "BLK": float(df["BLK"].astype(float).mean()),
+            "FTM": float(df["FTM"].astype(float).mean()) if "FTM" in df.columns else 0.0,
+            "TOV": float(df["TOV"].astype(float).mean()) if "TOV" in df.columns else 0.0,
+        }
+
+        # Percentages from totals (BRef-style)
+        fgm = float(df.get("FGM", 0).astype(float).sum()) if "FGM" in df.columns else None
+        fga = float(df.get("FGA", 0).astype(float).sum()) if "FGA" in df.columns else None
+        fg3m = float(df.get("FG3M", 0).astype(float).sum()) if "FG3M" in df.columns else None
+        fg3a = float(df.get("FG3A", 0).astype(float).sum()) if "FG3A" in df.columns else None
+        ftm_tot = float(df.get("FTM", 0).astype(float).sum()) if "FTM" in df.columns else None
+        fta_tot = float(df.get("FTA", 0).astype(float).sum()) if "FTA" in df.columns else None
+
+        if fgm is not None and fga and fga > 0:
+            out["FG_PCT"] = (fgm / fga) * 100.0
+        elif "FG_PCT" in df.columns:
+            out["FG_PCT"] = float(df["FG_PCT"].astype(float).mean()) * (100.0 if df["FG_PCT"].max() <= 1.0 else 1.0)
+        else:
+            out["FG_PCT"] = 0.0
+
+        if fg3m is not None and fg3a and fg3a > 0:
+            out["FG3_PCT"] = (fg3m / fg3a) * 100.0
+        elif "FG3_PCT" in df.columns:
+            out["FG3_PCT"] = float(df["FG3_PCT"].astype(float).mean()) * (100.0 if df["FG3_PCT"].max() <= 1.0 else 1.0)
+        else:
+            out["FG3_PCT"] = 0.0
+
+        if ftm_tot is not None and fta_tot and fta_tot > 0:
+            out["FT_PCT"] = (ftm_tot / fta_tot) * 100.0
+        elif "FT_PCT" in df.columns:
+            out["FT_PCT"] = float(df["FT_PCT"].astype(float).mean()) * (100.0 if df["FT_PCT"].max() <= 1.0 else 1.0)
+        else:
+            out["FT_PCT"] = 0.0
+
+        # Opponent optional
+        if "OPP_PTS" in df.columns:
+            out["OPP_PTS"] = float(df["OPP_PTS"].astype(float).mean())
+
+        opp_fgm = float(df.get("OPP_FGM", 0).astype(float).sum()) if "OPP_FGM" in df.columns else None
+        opp_fga = float(df.get("OPP_FGA", 0).astype(float).sum()) if "OPP_FGA" in df.columns else None
+        opp_fg3m = float(df.get("OPP_FG3M", 0).astype(float).sum()) if "OPP_FG3M" in df.columns else None
+        opp_fg3a = float(df.get("OPP_FG3A", 0).astype(float).sum()) if "OPP_FG3A" in df.columns else None
+
+        if opp_fgm is not None and opp_fga and opp_fga > 0:
+            out["OPP_FG_PCT"] = (opp_fgm / opp_fga) * 100.0
+        if opp_fg3m is not None and opp_fg3a and opp_fg3a > 0:
+            out["OPP_FG3_PCT"] = (opp_fg3m / opp_fg3a) * 100.0
+
+        return out
+    except Exception:
+        return {}
+
+# ---------------------------
+# Compatibility shim for nba_api
+# ---------------------------
+def _ldt_compat(*, season: str, season_type: str = "Regular Season",
+                per_mode: str = "PerGame", measure: str = "Base") -> pd.DataFrame:
+    """
+    LeagueDashTeamStats wrapper that detects the correct kwargs by introspection.
+    Filters to NBA (TEAM_ID startswith 161061).
+    """
+    base_kwargs = dict(
+        season=season,
+        season_type_all_star=season_type,
+        per_mode_detailed=per_mode,
+    )
+    try:
+        sig = inspect.signature(leaguedashteamstats.LeagueDashTeamStats.__init__)
+        params = sig.parameters
+    except Exception:
+        params = {}
+
+    if "measure_type_detailed_def" in params:
+        measure_kw = {"measure_type_detailed_def": measure}
+    elif "measure_type_detailed" in params:
+        measure_kw = {"measure_type_detailed": measure}
+    else:
+        measure_kw = {}
+
+    if "league_id_nullable" in params:
+        league_kw = {"league_id_nullable": "00"}
+    elif "league_id" in params:
+        league_kw = {"league_id": "00"}
+    else:
+        league_kw = {}
+
+    df = leaguedashteamstats.LeagueDashTeamStats(
+        **base_kwargs, **measure_kw, **league_kw
+    ).get_data_frames()[0]
+
+    if "TEAM_ID" in df.columns:
+        df = df[df["TEAM_ID"].astype(str).str.startswith("161061")].copy()
+
+    return df
+
+# ---------------------------
+# Teams endpoint
+# ---------------------------
+@lru_cache(maxsize=1)
+def _all_teams_norm():
+    rows = static_teams.get_teams()
+    return [
+        {
+            "id": str(r["id"]),
+            "name": r["full_name"],
+            "tri_code": r.get("abbreviation"),
+            "city": r.get("city"),
+            "conference": r.get("conference"),
+            "division": r.get("division"),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/teams")
+def list_teams(
+    search: Optional[str] = Query(None, description="Substring match on team name"),
+    sort: Literal["name", "city", "conference", "division"] = Query("name"),
+    order: Literal["asc", "desc"] = Query("asc"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    data = _all_teams_norm()
+
+    if search:
+        q = search.lower()
+        data = [t for t in data if q in t["name"].lower() or q in t["city"].lower()]
+
+    key_map = {"name": "name", "city": "city", "conference": "conference", "division": "division"}
+    data.sort(key=lambda t: t[key_map[sort]].lower())
+    if order == "desc":
+        data.reverse()
+
+    total = len(data)
+    items = data[offset: offset + limit]
+    return {"total": total, "items": items}
+
+# ---------------------------
+# Team Bio
+# ---------------------------
+@lru_cache(maxsize=512)
+def _fetch_team_bio(team_id: str) -> dict | None:
+    teams_data = static_teams.get_teams()
+    team = next((t for t in teams_data if str(t["id"]) == str(team_id)), None)
+    if not team:
+        return None
+    logo_url = f"https://cdn.nba.com/logos/nba/{team_id}/global/L/logo.svg"
+    return {
+        "team_id": str(team_id),
+        "name": team["full_name"],
+        "city": team.get("city"),
+        "abbreviation": team.get("abbreviation"),
+        "conference": team.get("conference"),
+        "division": team.get("division"),
+        "logo_url": logo_url,
+    }
+
+@router.get("/team_bio")
+def get_team_bio(
+    team_id: str = Query(...),
+    season: Optional[str] = Query(None),
+):
+    data = _fetch_team_bio(team_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return {
+        **data,
+        "record": None,
+        "standing": None,
+        "coach": None,
+        "arena": None,
+    }
+
+# ---------------------------
+# Opponent baselines for defense normalization
+# ---------------------------
+@lru_cache(maxsize=16)
+def _opp_baselines(season_fmt: str) -> dict:
+    """
+    Per-season min/max for opponent metrics (defense legs). % columns in 0–100.
+    """
+    try:
+        df_opp = _ldt_compat(
+            season=season_fmt,
+            season_type="Regular Season",
+            per_mode="PerGame",
+            measure="Opponent"
+        )
+        if df_opp is None or df_opp.empty:
+            raise ValueError("opp table empty")
+
+        def pctcol(series):
+            s = pd.to_numeric(series, errors="coerce").fillna(0.0)
+            return (s * 100.0) if s.max() <= 1.0 else s
+
+        out = {}
+        # PTS + shooting %
+        out["PTS"]     = (float(df_opp["OPP_PTS"].min()),     float(df_opp["OPP_PTS"].max()))
+        out["FG_PCT"]  = (float(pctcol(df_opp["OPP_FG_PCT"]).min()),  float(pctcol(df_opp["OPP_FG_PCT"]).max()))
+        out["FG3_PCT"] = (float(pctcol(df_opp["OPP_FG3_PCT"]).min()), float(pctcol(df_opp["OPP_FG3_PCT"]).max()))
+        # New: AST, REB, FTM, FT%
+        if "OPP_AST" in df_opp.columns:
+            out["AST"] = (float(df_opp["OPP_AST"].min()), float(df_opp["OPP_AST"].max()))
+        if "OPP_REB" in df_opp.columns:
+            out["REB"] = (float(df_opp["OPP_REB"].min()), float(df_opp["OPP_REB"].max()))
+        if "OPP_FTM" in df_opp.columns:
+            out["FTM"] = (float(df_opp["OPP_FTM"].min()), float(df_opp["OPP_FTM"].max()))
+        # FT% may be named OPP_FT_PCT or OPP_FT_PCT (already); handle generically
+        ft_pct_col = "OPP_FT_PCT" if "OPP_FT_PCT" in df_opp.columns else None
+        if ft_pct_col:
+            ft_pct = pctcol(df_opp[ft_pct_col])
+            out["FT_PCT"] = (float(ft_pct.min()), float(ft_pct.max()))
+
+        return out
+    except Exception:
+        return {}
+
+# ---------------------------
+# Team Profile Stats
+# ---------------------------
+@router.get("/team_profile_stats")
+def get_team_profile_stats(
+    team_id: str = Query(...),
+    season: Optional[str] = Query(None),
+):
+    """
+    Returns normalized team profile (0–100) + raw per-game numbers.
+    - Team legs use normalize_stats(kind='team') caps (+ inverted turnovers).
+    - Opponent legs use dynamic per-season league min/max (defense → higher=better).
+    """
+    try:
+        season = season or current_nba_season()
+        season_fmt = format_season(season)
+
+        # --- TEAM (Base table) ---
+        df_team = _ldt_compat(
+            season=season_fmt,
+            season_type="Regular Season",
+            per_mode="PerGame",
+            measure="Base",
+        )
+        row_team = df_team.loc[df_team["TEAM_ID"] == int(team_id)]
+        if row_team.empty:
+            raise ValueError(f"TEAM_ID {team_id} not found in Base table")
+        t = row_team.iloc[0]
+
+        # --- OPPONENT (Opponent table) ---
+        df_opp = _ldt_compat(
+            season=season_fmt,
+            season_type="Regular Season",
+            per_mode="PerGame",
+            measure="Opponent",
+        )
+        row_opp = df_opp.loc[df_opp["TEAM_ID"] == int(team_id)]
+        if row_opp.empty:
+            raise ValueError(f"TEAM_ID {team_id} not found in Opponent table")
+        o = row_opp.iloc[0]
+
+        # --- TEAM raw per-game (gamelog preferred for percentages) ---
+        pg = _team_pg_from_gamelog(int(team_id), season_fmt)
+
+        if pg:
+            team_pts = float(pg.get("PTS", 0.0))
+            team_reb = float(pg.get("REB", 0.0))
+            team_ast = float(pg.get("AST", 0.0))
+            team_blk = float(pg.get("BLK", 0.0))
+            team_stl = float(pg.get("STL", 0.0))
+            team_tov = float(pg.get("TOV", 0.0))
+            team_ftm = float(pg.get("FTM", 0.0))
+            team_fg  = float(pg.get("FG_PCT", 0.0))   # 0–100
+            team_3p  = float(pg.get("FG3_PCT", 0.0))  # 0–100
+            team_ft  = float(pg.get("FT_PCT", 0.0))   # 0–100
+        else:
+            team_pts = float(t.get("PTS", 0))
+            team_reb = float(t.get("REB", 0))
+            team_ast = float(t.get("AST", 0))
+            team_blk = float(t.get("BLK", 0))
+            team_stl = float(t.get("STL", 0))
+            team_tov = float(t.get("TOV", 0)) if "TOV" in t else 0.0
+            team_ftm = float(t.get("FTM", 0)) if "FTM" in t else 0.0
+            team_fg  = _pct100(t.get("FG_PCT", 0))
+            team_3p  = _pct100(t.get("FG3_PCT", 0))
+            team_ft  = _pct100(t.get("FT_PCT", 0)) if "FT_PCT" in t else 0.0
+
+        # Normalize the team legs using your utility (adds classic legs)
+        norm_team = normalize_stats({
+            "TEAM_PTS": team_pts,
+            "TEAM_REB": team_reb,
+            "TEAM_AST": team_ast,
+            "TEAM_BLK": team_blk,
+            "TEAM_STL": team_stl,
+            "TEAM_FG_PCT":  team_fg,
+            "TEAM_FG3_PCT": team_3p,
+            # extras (normalize.py may ignore; we handle turnovers below)
+            "TEAM_FTM": team_ftm,
+            "TEAM_FT_PCT": team_ft,
+            "TEAM_TOV": team_tov,
+        }, kind="team")
+
+        # Add turnovers as an inverted 0–100 (lower is better)
+        # and pass through FTM/FT% if your normalize.py supports them later.
+        TEAM_CAPS = {"TOV": 20.0}  # sensible ceiling
+        norm_tov = _invert_cap(team_tov, TEAM_CAPS["TOV"])
+
+        # --- OPPONENT raw (from Opponent table) ---
+        raw_opp_pts = float(o.get("PTS", 0))
+        raw_opp_fg  = _pct100(o.get("FG_PCT", 0))
+        raw_opp_3p  = _pct100(o.get("FG3_PCT", 0))
+        raw_opp_ast = float(o.get("AST", 0)) if "AST" in o else 0.0
+        raw_opp_reb = float(o.get("REB", 0)) if "REB" in o else 0.0
+        raw_opp_ftm = float(o.get("FTM", 0)) if "FTM" in o else 0.0
+        raw_opp_ft  = _pct100(o.get("FT_PCT", 0)) if "FT_PCT" in o else 0.0
+
+        # --- Opponent normalization: dynamic per-season min/max ---
+        baselines = _opp_baselines(season_fmt)
+        if baselines:
+            opp_points = _minmax_inv(raw_opp_pts, *baselines["PTS"])
+            opp_fg_pct = _minmax_inv(raw_opp_fg,  *baselines["FG_PCT"])
+            opp_fg3_pct= _minmax_inv(raw_opp_3p,  *baselines["FG3_PCT"])
+            # new legs if we have baselines
+            opp_ast = _minmax_inv(raw_opp_ast, *baselines["AST"]) if "AST" in baselines else 0.0
+            opp_reb = _minmax_inv(raw_opp_reb, *baselines["REB"]) if "REB" in baselines else 0.0
+            opp_ftm = _minmax_inv(raw_opp_ftm, *baselines["FTM"]) if "FTM" in baselines else 0.0
+            opp_ft_pct = _minmax_inv(raw_opp_ft, *baselines["FT_PCT"]) if "FT_PCT" in baselines else 0.0
+            scale_hint = "dynamic"
+        else:
+            # fixed caps fallback
+            OPP_CAP = {"PTS": 130.0, "FG_PCT": 60.0, "FG3_PCT": 45.0, "AST": 35.0, "REB": 60.0, "FTM": 35.0, "FT_PCT": 90.0}
+            def inv_cap(v, cap):
+                v = max(0.0, min(float(v or 0.0), cap))
+                return round((1.0 - (v / cap)) * 100.0, 1)
+            opp_points = inv_cap(raw_opp_pts, OPP_CAP["PTS"])
+            opp_fg_pct = inv_cap(raw_opp_fg,  OPP_CAP["FG_PCT"])
+            opp_fg3_pct= inv_cap(raw_opp_3p,  OPP_CAP["FG3_PCT"])
+            opp_ast    = inv_cap(raw_opp_ast, OPP_CAP["AST"])
+            opp_reb    = inv_cap(raw_opp_reb, OPP_CAP["REB"])
+            opp_ftm    = inv_cap(raw_opp_ftm, OPP_CAP["FTM"])
+            opp_ft_pct = inv_cap(raw_opp_ft,  OPP_CAP["FT_PCT"])
+            scale_hint = "cap"
+
+        return {
+            # team (normalized + raw)
+            "points":   norm_team["points"],
+            "rebounds": norm_team["rebounds"],
+            "assists":  norm_team["assists"],
+            "blocks":   norm_team["blocks"],
+            "steals":   norm_team["steals"],
+            "fg_pct":   norm_team["fg_pct"],
+            "fg3_pct":  norm_team["fg3_pct"],
+            "turnovers": norm_tov,  # NEW (0–100, lower is better)
+
+            "raw_points": round(team_pts, 1),
+            "raw_rebounds": round(team_reb, 1),
+            "raw_assists": round(team_ast, 1),
+            "raw_blocks": round(team_blk, 1),
+            "raw_steals": round(team_stl, 1),
+            "raw_fg_pct": round(team_fg, 1),
+            "raw_fg3_pct": round(team_3p, 1),
+            "raw_tov": round(team_tov, 1),  # NEW
+
+            # opponent (normalized + raw)
+            "opp_points": opp_points,
+            "opp_fg_pct": opp_fg_pct,
+            "opp_fg3_pct": opp_fg3_pct,
+            "opp_ast": opp_ast,       # NEW
+            "opp_reb": opp_reb,       # NEW
+            "opp_ftm": opp_ftm,       # NEW
+            "opp_ft_pct": opp_ft_pct, # NEW
+
+            "raw_opp_points": round(raw_opp_pts, 1),
+            "raw_opp_fg_pct": round(raw_opp_fg, 1),
+            "raw_opp_fg3_pct": round(raw_opp_3p, 1),
+            "raw_opp_ast": round(raw_opp_ast, 1),     # NEW
+            "raw_opp_reb": round(raw_opp_reb, 1),     # NEW
+            "raw_opp_ftm": round(raw_opp_ftm, 1),     # NEW
+            "raw_opp_ft_pct": round(raw_opp_ft, 1),   # NEW
+
+            "opponent_scale": scale_hint,
+            "season": season_fmt,
+        }
+
+    except Exception as e:
+        print(f"[team_profile_stats] error: {e}")
+        return {
+            "points":0,"rebounds":0,"assists":0,"blocks":0,"steals":0,"fg_pct":0,"fg3_pct":0,"turnovers":0,
+            "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,"raw_fg_pct":0,"raw_fg3_pct":0,"raw_tov":0,
+            "opp_points":0,"opp_fg_pct":0,"opp_fg3_pct":0,"opp_ast":0,"opp_reb":0,"opp_ftm":0,"opp_ft_pct":0,
+            "raw_opp_points":0,"raw_opp_fg_pct":0,"raw_opp_fg3_pct":0,"raw_opp_ast":0,"raw_opp_reb":0,"raw_opp_ftm":0,"raw_opp_ft_pct":0,
+            "opponent_scale":"error"
+        }
+
+# ---------------------------
+# Cached league shots
+# ---------------------------
+def _fetch_league_shots(season_fmt: str, retries=2, backoff=1.5) -> pd.DataFrame:
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            sc = shotchartdetail.ShotChartDetail(
+                team_id=0,
+                player_id=0,
+                season_nullable=season_fmt,
+                season_type_all_star="Regular Season",
+                context_measure_simple="FGA",
+            )
+            frames = sc.get_data_frames()
+            return frames[0] if frames and len(frames) > 0 else pd.DataFrame()
+        except ReadTimeout as e:
+            last_err = e
+            if attempt < retries:
+                time.sleep(backoff * (attempt + 1))
+            else:
+                break
+        except Exception as e:
+            last_err = e
+            break
+    return pd.DataFrame()
+
+@lru_cache(maxsize=8)
+def _league_shots_for_season(season_fmt: str) -> pd.DataFrame:
+    return _fetch_league_shots(season_fmt)
+
+# ---------------------------
+# Team shots
+# ---------------------------
+@router.get("/team_shots")
+def team_shots(team_id: int = Query(...), season: str = Query(...)):
+    season_fmt = format_season(season)
+    df = _league_shots_for_season(season_fmt)
+
+    if df.empty:
+        return {
+            "season": season_fmt, "team_id": team_id,
+            "shots_for": [], "shots_against": [],
+            "summary_for": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
+            "summary_against": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
+        }
+
+    cols = [
+        "LOC_X","LOC_Y","SHOT_MADE_FLAG","TEAM_ID",
+        "SHOT_ZONE_BASIC","SHOT_DISTANCE","SHOT_TYPE","HTM","VTM"
+    ]
+    df = df[[c for c in cols if c in df.columns]].copy()
+
+    teams_data = static_teams.get_teams()
+    team_row = next((t for t in teams_data if int(t["id"]) == int(team_id)), None)
+    team_abbr = (team_row or {}).get("abbreviation")
+
+    if "HTM" in df.columns and "VTM" in df.columns and team_abbr:
+        df["HTM"] = df["HTM"].astype(str).str.upper()
+        df["VTM"] = df["VTM"].astype(str).str.upper()
+        involves = (df["HTM"] == team_abbr) | (df["VTM"] == team_abbr)
+        df = df[involves].copy()
+
+    shots_for_df = df[df["TEAM_ID"] == int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
+    shots_against_df = df[df["TEAM_ID"] != int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
+
+    def to_events(frame: pd.DataFrame) -> List[dict]:
+        if frame.empty: return []
+        return [
+            {
+                "x": float(r["LOC_X"]),
+                "y": float(r["LOC_Y"]),
+                "made": bool(r["SHOT_MADE_FLAG"]),
+                "shot_zone": (r["SHOT_ZONE_BASIC"] if pd.notna(r.get("SHOT_ZONE_BASIC")) else None),
+                "shot_distance": (float(r["SHOT_DISTANCE"]) if pd.notna(r.get("SHOT_DISTANCE")) else None),
+            }
+            for _, r in frame.iterrows()
+        ]
+
+    def summarize(frame: pd.DataFrame) -> dict:
+        if frame.empty:
+            return {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0}
+        fga = int(len(frame))
+        fgm = int(frame["SHOT_MADE_FLAG"].fillna(0).astype(int).sum())
+        fg_pct = round((fgm / fga) * 100.0, 1) if fga else 0.0
+
+        if "SHOT_TYPE" in frame.columns:
+            threes = frame[frame["SHOT_TYPE"].astype(str).str.startswith("3PT", na=False)]
+        else:
+            threes = frame[frame.get("SHOT_DISTANCE", pd.Series(dtype=float)) >= 23]
+
+        fg3a = int(len(threes))
+        fg3m = int(threes["SHOT_MADE_FLAG"].fillna(0).astype(int).sum()) if fg3a else 0
+        fg3_pct = round((fg3m / fg3a) * 100.0, 1) if fg3a else 0.0
+
+        return {"fg_pct": fg_pct, "fgm": fgm, "fga": fga, "fg3_pct": fg3_pct, "fg3m": fg3m, "fg3a": fg3a}
+
+    return {
+        "season": season_fmt,
+        "team_id": team_id,
+        "shots_for": to_events(shots_for_df),
+        "shots_against": to_events(shots_against_df),
+        "summary_for": summarize(shots_for_df),
+        "summary_against": summarize(shots_against_df),
+    }
+
+# ---------------------------
+# Debug helpers
+# ---------------------------
+
+@router.get("/_debug/team_gamelog")
+def debug_team_gamelog(team_id: int = Query(...), season: str = Query(...)):
+    season_fmt = format_season(season)
+    try:
+        gl_kwargs = dict(
+            team_id=team_id,
+            season=season_fmt,
+            season_type_all_star="Regular Season",
+        )
+        try:
+            sig = inspect.signature(teamgamelog.TeamGameLog.__init__)
+        except (TypeError, ValueError):
+            sig = None
+        if sig is not None:
+            params = sig.parameters
+            if "league_id_nullable" in params:
+                gl_kwargs["league_id_nullable"] = "00"
+            elif "league_id" in params:
+                gl_kwargs["league_id"] = "00"
+
+        gl = teamgamelog.TeamGameLog(**gl_kwargs).get_data_frames()[0]
+    except Exception as e:
+        return {"season": season_fmt, "team_id": team_id, "error": str(e)}
+
+    if gl is None or gl.empty:
+        return {"season": season_fmt, "team_id": team_id, "empty": True}
+
+    df = gl.copy()
+    head = df.head(3).to_dict(orient="records")
+
+    def safe_sum(col):
+        return float(df.get(col, 0).astype(float).sum()) if col in df.columns else 0.0
+
+    fgm, fga = safe_sum("FGM"), safe_sum("FGA")
+    fg3m, fg3a = safe_sum("FG3M"), safe_sum("FG3A")
+    opp_fgm, opp_fga = safe_sum("OPP_FGM"), safe_sum("OPP_FGA")
+    opp_fg3m, opp_fg3a = safe_sum("OPP_FG3M"), safe_sum("OPP_FG3A")
+    ftm_tot, fta_tot = safe_sum("FTM"), safe_sum("FTA")
+
+    pg = {
+        "PTS": float(df.get("PTS", 0).astype(float).mean()) if "PTS" in df.columns else 0.0,
+        "REB": float(df.get("REB", 0).astype(float).mean()) if "REB" in df.columns else 0.0,
+        "AST": float(df.get("AST", 0).astype(float).mean()) if "AST" in df.columns else 0.0,
+        "STL": float(df.get("STL", 0).astype(float).mean()) if "STL" in df.columns else 0.0,
+        "BLK": float(df.get("BLK", 0).astype(float).mean()) if "BLK" in df.columns else 0.0,
+        "TOV": float(df.get("TOV", 0).astype(float).mean()) if "TOV" in df.columns else 0.0,
+        "FTM": float(df.get("FTM", 0).astype(float).mean()) if "FTM" in df.columns else 0.0,
+        "FG_PCT": (fgm / fga * 100.0) if fga > 0 else None,
+        "FG3_PCT": (fg3m / fg3a * 100.0) if fg3a > 0 else None,
+        "FT_PCT": (ftm_tot / fta_tot * 100.0) if fta_tot > 0 else None,
+    }
+
+    if "OPP_PTS" in df.columns:
+        pg["OPP_PTS"] = float(df["OPP_PTS"].astype(float).mean())
+    if opp_fga > 0:
+        pg["OPP_FG_PCT"] = (opp_fgm / opp_fga) * 100.0
+    if opp_fg3a > 0:
+        pg["OPP_FG3_PCT"] = (opp_fg3m / opp_fg3a) * 100.0
+
+    return {
+        "season": season_fmt,
+        "team_id": team_id,
+        "columns": list(df.columns),
+        "games": int(len(df)),
+        "head": head,
+        "totals": {
+            "FGM": fgm, "FGA": fga, "FG3M": fg3m, "FG3A": fg3a,
+            "FTM": ftm_tot, "FTA": fta_tot,
+            "OPP_FGM": opp_fgm, "OPP_FGA": opp_fga, "OPP_FG3M": opp_fg3m, "OPP_FG3A": opp_fg3a
+        },
+        "per_game_calc": pg
+    }
+
+@router.get("/_debug/leaguedashteamstats")
+def debug_leaguedashteamstats(
+    season: str = Query(..., description="e.g. 2023-24"),
+    season_type: str = Query("Regular Season"),
+):
+    try:
+        df_team = _ldt_compat(season=season, season_type=season_type, per_mode="PerGame", measure="Base")
+    except Exception as e:
+        df_team = pd.DataFrame()
+        team_err = str(e)
+    else:
+        team_err = None
+
+    try:
+        df_opp  = _ldt_compat(season=season, season_type=season_type, per_mode="PerGame", measure="Opponent")
+    except Exception as e:
+        df_opp = pd.DataFrame()
+        opp_err = str(e)
+    else:
+        opp_err = None
+
+    def brief(df: pd.DataFrame):
+        return {
+            "rows": 0 if df is None else int(len(df)),
+            "cols": [] if df is None or df.empty else list(df.columns),
+            "sample_team_ids": [] if df is None or df.empty or "TEAM_ID" not in df.columns else list(map(int, df["TEAM_ID"].head(8))),
+            "head": [] if df is None or df.empty else df.head(3).to_dict(orient="records"),
+        }
+
+    return {
+        "season": season,
+        "season_type": season_type,
+        "base": brief(df_team),
+        "opponent": brief(df_opp),
+        "errors": {"base": team_err, "opponent": opp_err},
+    }
+
+# backend/app/api/endpoints/players.py
+from fastapi import APIRouter, Query, HTTPException
+from functools import lru_cache
+from nba_api.stats.endpoints import playergamelog, shotchartdetail, commonplayerinfo
+from nba_api.stats.static import players as static_players
+from app.models.schemas import (
+      PlayerProfileStats,
+      GameStat,
+      PlayerShotsResponse,
+      ShotEvent,
+  )
+from app.utils.seasons import format_season, current_nba_season
+from app.utils.normalize import normalize_stats
+from app.utils.dates import _age_at_season_start, _season_start_date
+from typing import List, Optional, Literal
+import pandas as pd
+from datetime import datetime, date
+import time
+import traceback
+from requests.exceptions import RequestException, ReadTimeout
+
+router = APIRouter()
+
+# Players endpoint
+# Caching player data
+@lru_cache(maxsize=1)
+def _all_players_norm():
+    # ~5k records; cache in memory
+    rows = static_players.get_players()
+    return [
+        {
+            "id": str(r["id"]),
+            "name": r["full_name"],
+            "first": r.get("first_name") or "",
+            "last": r.get("last_name") or "",
+            "is_active": bool(r.get("is_active")),
+        }
+        for r in rows
+    ]
+
+@router.get("/players")
+def list_players(
+    search: Optional[str] = Query(None, description="Substring match on full name"),
+    startswith: Optional[str] = Query(None, description="Filter by first letter(s) of last name or full name"),
+    active_only: bool = Query(False, description="If True, return only currently active players"),
+    sort: Literal["name","last","first"] = Query("name"),
+    order: Literal["asc","desc"] = Query("asc"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    data = _all_players_norm()
+
+    if active_only:
+        data = [p for p in data if p["is_active"]]
+
+    if startswith:
+        s = startswith.lower()
+        data = [
+            p for p in data
+            if p["name"].lower().startswith(s) or p["last"].lower().startswith(s)
+        ]
+
+    if search:
+        q = search.lower()
+        data = [p for p in data if q in p["name"].lower()]
+
+    key_map = {"name": "name", "last": "last", "first": "first"}
+    data.sort(key=lambda p: p[key_map[sort]].lower())
+    if order == "desc":
+        data.reverse()
+
+    total = len(data)
+    items = data[offset: offset + limit]
+    return {"total": total, "items": items}
+
+# Player Bio
+def _height_to_cm_str(height_str: str | None) -> str | None:
+    # HEIGHT comes like "6-8" -> inches -> cm
+    if not height_str or "-" not in height_str:
+        return None
+    try:
+        feet, inches = height_str.split("-")
+        total_in = int(feet) * 12 + int(inches)
+        cm = round(total_in * 2.54)
+        return str(cm)
+    except Exception:
+        return None
+
+def _fetch_player_bio(player_id: str, retries: int = 5, backoff: float = 1.5) -> dict | None:
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            info = commonplayerinfo.CommonPlayerInfo(
+                player_id=int(player_id),
+                timeout=60,  # <— per-call timeout, in addition to the global one
+            ).get_data_frames()
+
+            if not info or len(info) == 0 or info[0].empty:
+                last_err = RuntimeError("empty CommonPlayerInfo")
+                raise last_err
+
+            df = info[0].iloc[0]
+            name = df.get("DISPLAY_FIRST_LAST") or df.get("DISPLAY_FI_LAST") or df.get("PLAYER_NAME")
+            team = df.get("TEAM_NAME") or df.get("TEAM_ABBREVIATION")
+            position = df.get("POSITION")
+            height = df.get("HEIGHT")
+            weight = df.get("WEIGHT")
+            jersey = df.get("JERSEY")
+            birthdate = df.get("BIRTHDATE")
+            headshot_url = f"https://cdn.nba.com/headshots/nba/latest/260x190/{player_id}.png"
+
+            return {
+                "player_id": str(player_id),
+                "name": name,
+                "team": team,
+                "position": position,
+                "height": height,
+                "height_cm": _height_to_cm_str(height),
+                "weight_lbs": (int(weight) if isinstance(weight, (int, float, str)) and str(weight).isdigit() else None),
+                "jersey": jersey if jersey not in ("", None, "0") else None,
+                "birthdate": birthdate,
+                "headshot_url": headshot_url,
+            }
+
+        except (ReadTimeout, RequestException, RuntimeError) as e:
+            last_err = e
+            sleep = backoff * attempt
+            print(f"[player_bio] attempt {attempt}/{retries} failed ({e}); sleeping {sleep:.1f}s")
+            time.sleep(sleep)
+        except Exception as e:
+            last_err = e
+            sleep = backoff * attempt
+            print(f"[player_bio] unexpected error attempt {attempt}/{retries}: {repr(e)}; sleeping {sleep:.1f}s")
+            time.sleep(sleep)
+
+    print(f"[player_bio] giving up for player_id={player_id}: {repr(last_err)}")
+    traceback.print_exc()
+    return None
+
+
+@router.get("/player_bio")
+def get_player_bio(
+    player_id: str = Query(...),
+    season: Optional[str] = Query(None, description="e.g. 2024 or 2024-25; if omitted, compute age as of today")
+):
+    data = _fetch_player_bio(player_id)
+    if not data:
+        # Tell the frontend it's an upstream problem, not a CORS/route issue
+        raise HTTPException(status_code=502, detail="NBA upstream unavailable")
+
+    age = _age_at_season_start(data.get("birthdate"), season)
+    return {
+        **data,
+        "age": age,
+        "age_as_of": (
+            (_season_start_date(format_season(season)).isoformat() if season else date.today().isoformat())
+            if data.get("birthdate") else None
+        )
+    }
+
+# -------------------------
+# Cached player shot charts
+# -------------------------
+@lru_cache(maxsize=256)
+def _player_shots_for_season(player_id: str, season_fmt: str) -> pd.DataFrame:
+    sc = shotchartdetail.ShotChartDetail(
+        team_id=0,
+        player_id=int(player_id),
+        season_nullable=season_fmt,
+        season_type_all_star="Regular Season",
+        context_measure_simple="FGA",
+    )
+    frames = sc.get_data_frames()
+    return frames[0] if frames and len(frames) > 0 else pd.DataFrame()
+
+EARLIEST_SHOT_SEASON_START = 1996  # 1996-97
+
+def _season_start_year(season_fmt: str) -> int:
+    # "YYYY-YY" -> int(YYYY)
+    return int(season_fmt.split('-')[0])
+
+@router.get("/player_shots", response_model=PlayerShotsResponse)
+def get_player_shots(player_id: str = Query(...), season: Optional[str] = Query(None)):
+    season = season or current_nba_season()
+    season_fmt = format_season(season)
+
+    # Era check: no league shot locations prior to 1996–97
+    has_shot_data = _season_start_year(season_fmt) >= EARLIEST_SHOT_SEASON_START
+    if not has_shot_data:
+        return PlayerShotsResponse(
+            player_id=player_id,
+            season=season_fmt,
+            total=0, makes=0, attempts=0, shots=[],
+            # has_shot_data=False   # uncomment if your model includes this optional field
+        )
+
+    # Pull cached player shots for this season
+    shots_df = _player_shots_for_season(player_id, season_fmt)
+
+    if shots_df.empty:
+        return PlayerShotsResponse(
+            player_id=player_id,
+            season=season_fmt,
+            total=0, makes=0, attempts=0, shots=[],
+            # has_shot_data=True
+        )
+
+    # Keep only the columns we need (defensive against lib version changes)
+    cols = ["LOC_X", "LOC_Y", "SHOT_MADE_FLAG", "SHOT_ZONE_BASIC", "SHOT_DISTANCE"]
+    shots_df = shots_df[[c for c in cols if c in shots_df.columns]].copy()
+
+    # Build the response list
+    shots: List[ShotEvent] = [
+        ShotEvent(
+            x=float(r.LOC_X),
+            y=float(r.LOC_Y),
+            made=bool(r.SHOT_MADE_FLAG) if "SHOT_MADE_FLAG" in shots_df.columns else False,
+            shot_zone=(r.SHOT_ZONE_BASIC if "SHOT_ZONE_BASIC" in shots_df.columns and pd.notna(r.SHOT_ZONE_BASIC) else None),
+            shot_distance=(float(r.SHOT_DISTANCE) if "SHOT_DISTANCE" in shots_df.columns and pd.notna(r.SHOT_DISTANCE) else None),
+        )
+        for _, r in shots_df.iterrows()
+    ]
+
+    attempts = len(shots)
+    makes = int(shots_df["SHOT_MADE_FLAG"].sum()) if "SHOT_MADE_FLAG" in shots_df.columns else 0
+
+    return PlayerShotsResponse(
+        player_id=player_id,
+        season=season_fmt,
+        total=attempts,
+        makes=makes,
+        attempts=attempts,
+        shots=shots,
+        # has_shot_data=True
+    )
+
+# -------------------------
+# Game log series
+# -------------------------
+@router.get("/player_stats", response_model=list[GameStat])
+def get_player_stats(
+    player_id: str = Query(...),
+    season: Optional[str] = Query(None),
+):
+    season = season or current_nba_season()
+    formatted_season = format_season(season)
+
+    logs = playergamelog.PlayerGameLog(
+        player_id=player_id,
+        season=formatted_season,
+        season_type_all_star="Regular Season",
+    ).get_data_frames()[0]
+
+    if logs.empty:
+        return []
+
+    stats = logs[["GAME_DATE", "PTS"]].sort_values("GAME_DATE")
+    return [
+        GameStat(game_date=row["GAME_DATE"], points=int(row["PTS"]))
+        for _, row in stats.iterrows()
+    ]
+
+# -------------------------
+# Profile averages
+# -------------------------
+@router.get("/player_profile_stats")  # remove response_model or update the model to include new fields
+def get_player_profile_stats(
+    player_id: str = Query(...),
+    season: Optional[str] = Query(None),
+):
+    try:
+        raw_season = season
+        season = season or current_nba_season()
+        formatted_season = format_season(season).strip()
+        print(f"[profile_stats] player={player_id}  raw_season={raw_season!r}  formatted={formatted_season}")
+
+        logs = playergamelog.PlayerGameLog(
+            player_id=player_id,
+            season=formatted_season,
+            season_type_all_star="Regular Season"
+        ).get_data_frames()[0]
+
+        if logs.empty:
+            return {
+                "points":0,"rebounds":0,"assists":0,"blocks":0,"steals":0,"fg_pct":0,"fg3_pct":0,
+                "ft_rate":0,"ft_pct":0,"turnovers":0,
+                "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,
+                "raw_fg_pct":0,"raw_fg3_pct":0,"raw_ft_rate":0,"raw_ft_pct":0,"raw_tov":0
+            }
+
+        # Per-game means for counting stats
+        avgs = logs[['PTS','REB','AST','BLK','STL','TOV']].mean().fillna(0)
+        tov_pg = float(avgs['TOV']) if 'TOV' in avgs else 0.0
+
+        # Totals for percentage-based
+        fgm  = float(logs['FGM'].sum()) if 'FGM' in logs.columns else 0.0
+        fga  = float(logs['FGA'].sum()) if 'FGA' in logs.columns else 0.0
+        fg3m = float(logs['FG3M'].sum()) if 'FG3M' in logs.columns else 0.0
+        fg3a = float(logs['FG3A'].sum()) if 'FG3A' in logs.columns else 0.0
+        ftm  = float(logs['FTM'].sum()) if 'FTM' in logs.columns else 0.0
+        fta  = float(logs['FTA'].sum()) if 'FTA' in logs.columns else 0.0
+
+        fg_pct_season  = (fgm / fga * 100.0) if fga > 0 else 0.0
+        fg3_pct_season = (fg3m / fg3a * 100.0) if fg3a > 0 else 0.0
+        ft_pct_season  = (ftm / fta * 100.0) if fta > 0 else 0.0
+        ftr_ratio      = (fta / fga) if fga > 0 else 0.0   # free throw rate (FTA / FGA)
+        ftr_percent    = ftr_ratio * 100.0                 # display as %
+
+        # Normalize (player context)
+        normalized = normalize_stats({
+            'PTS': avgs['PTS'],
+            'REB': avgs['REB'],
+            'AST': avgs['AST'],
+            'BLK': avgs['BLK'],
+            'STL': avgs['STL'],
+            'FG_PCT':   fg_pct_season,   # already 0–100
+            'FG3_PCT':  fg3_pct_season,  # already 0–100
+            'FT_PCT':   ft_pct_season,   # NEW
+            'TOV':      tov_pg,          # NEW (will be inverted if your normalize supports it)
+            'FTR':      ftr_percent,     # NEW (accepts 0–100 or 0–1 in normalize)
+        }, kind="player")
+
+        # Fallbacks in case your normalize.py doesn’t yet emit these keys
+        ft_rate_norm = float(normalized.get('ft_rate', 0.0))
+        ft_pct_norm  = float(normalized.get('ft_pct', 0.0))
+        tov_norm     = float(normalized.get('turnovers', 0.0))
+
+        return {
+            "points":   normalized['points'],
+            "rebounds": normalized['rebounds'],
+            "assists":  normalized['assists'],
+            "blocks":   normalized['blocks'],
+            "steals":   normalized['steals'],
+            "fg_pct":   normalized['fg_pct'],
+            "fg3_pct":  normalized['fg3_pct'],
+
+            # NEW normalized legs
+            "ft_rate":  ft_rate_norm,
+            "ft_pct":   ft_pct_norm,
+            "turnovers": tov_norm,
+
+            # raw hovers
+            "raw_points": round(float(avgs['PTS']), 1),
+            "raw_rebounds": round(float(avgs['REB']), 1),
+            "raw_assists": round(float(avgs['AST']), 1),
+            "raw_blocks": round(float(avgs['BLK']), 1),
+            "raw_steals": round(float(avgs['STL']), 1),
+            "raw_fg_pct": round(fg_pct_season, 1),
+            "raw_fg3_pct": round(fg3_pct_season, 1),
+
+            # NEW raw hovers
+            "raw_ft_rate": round(ftr_percent, 1),  # show as %
+            "raw_ft_pct":  round(ft_pct_season, 1),
+            "raw_tov":     round(tov_pg, 1),
+        }
+
+    except Exception as e:
+        print("[player_profile_stats] error:", e)
+        return {
+            "points":0,"rebounds":0,"assists":0,"blocks":0,"steals":0,"fg_pct":0,"fg3_pct":0,
+            "ft_rate":0,"ft_pct":0,"turnovers":0,
+            "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,
+            "raw_fg_pct":0,"raw_fg3_pct":0,"raw_ft_rate":0,"raw_ft_pct":0,"raw_tov":0
+        }
+
+
+# -------------------------
+# Debugging endpoint
+# -------------------------
+@router.get("/_debug/ping_nba")
+def ping_nba():
+    try:
+        test = commonplayerinfo.CommonPlayerInfo(player_id=2544).get_data_frames()
+        ok = bool(test and len(test) > 0 and not test[0].empty)
+        return {"ok": ok, "note": "CommonPlayerInfo(LeBron) fetched"}
+    except Exception as e:
+        print("[_debug/ping_nba]", repr(e))
+        traceback.print_exc()
+        return {"ok": False, "error": str(e)}
