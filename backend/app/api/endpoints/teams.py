@@ -14,6 +14,7 @@ from nba_api.stats.endpoints import (
     teamgamelog,
 )
 from nba_api.stats.static import teams as static_teams
+from app.utils.percentiles import team_row_percentiles, team_row_opponent_percentiles
 from ...utils.seasons import format_season, current_nba_season
 from ...utils.normalize import normalize_stats
 
@@ -322,11 +323,13 @@ def _opp_baselines(season_fmt: str) -> dict:
 def get_team_profile_stats(
     team_id: str = Query(...),
     season: Optional[str] = Query(None),
+    scale: str = Query("percentile", description="team legs: percentile | cap"),
+    opp_scale: str = Query("percentile", description="opponent legs: percentile | dynamic | cap"),
 ):
     """
     Returns normalized team profile (0–100) + raw per-game numbers.
-    - Team legs use normalize_stats(kind='team') caps (+ inverted turnovers).
-    - Opponent legs use dynamic per-season league min/max (defense → higher=better).
+    - Team legs: league percentiles by default (fallback to your cap-based normalize).
+    - Opponent legs: league percentiles by default (fallback to dynamic per-season min/max, then cap).
     """
     try:
         season = season or current_nba_season()
@@ -382,7 +385,7 @@ def get_team_profile_stats(
             team_3p  = _pct100(t.get("FG3_PCT", 0))
             team_ft  = _pct100(t.get("FT_PCT", 0)) if "FT_PCT" in t else 0.0
 
-        # Normalize the team legs using your utility (adds classic legs)
+        # --- TEAM legs: cap-based normalize (fallback) ---
         norm_team = normalize_stats({
             "TEAM_PTS": team_pts,
             "TEAM_REB": team_reb,
@@ -391,16 +394,46 @@ def get_team_profile_stats(
             "TEAM_STL": team_stl,
             "TEAM_FG_PCT":  team_fg,
             "TEAM_FG3_PCT": team_3p,
-            # extras (normalize.py may ignore; we handle turnovers below)
             "TEAM_FTM": team_ftm,
             "TEAM_FT_PCT": team_ft,
             "TEAM_TOV": team_tov,
         }, kind="team")
+        norm_tov = _invert_cap(team_tov, 20.0)
 
-        # Add turnovers as an inverted 0–100 (lower is better)
-        # and pass through FTM/FT% if your normalize.py supports them later.
-        TEAM_CAPS = {"TOV": 20.0}  # sensible ceiling
-        norm_tov = _invert_cap(team_tov, TEAM_CAPS["TOV"])
+        legs_cap = {
+            "points":   norm_team["points"],
+            "rebounds": norm_team["rebounds"],
+            "assists":  norm_team["assists"],
+            "blocks":   norm_team["blocks"],
+            "steals":   norm_team["steals"],
+            "fg_pct":   norm_team["fg_pct"],
+            "fg3_pct":  norm_team["fg3_pct"],
+            "turnovers":norm_tov,
+        }
+
+        # --- TEAM legs: league percentiles (preferred) ---
+        team_scale_used = "percentile"
+        team_pct = {}
+        if scale == "percentile":
+            try:
+                team_pct = team_row_percentiles(int(team_id), season_fmt)
+            except Exception:
+                team_pct = {}
+
+        if scale == "percentile" and team_pct:
+            legs_team = {
+                "points":   team_pct.get("pts_pct", 0.0),
+                "rebounds": team_pct.get("reb_pct", 0.0),
+                "assists":  team_pct.get("ast_pct", 0.0),
+                "blocks":   team_pct.get("blk_pct", 0.0),
+                "steals":   team_pct.get("stl_pct", 0.0),
+                "fg_pct":   team_pct.get("fg_pct_pct", 0.0),
+                "fg3_pct":  team_pct.get("fg3_pct_pct", 0.0),
+                "turnovers":team_pct.get("tov_pct", 0.0),
+            }
+        else:
+            legs_team = legs_cap
+            team_scale_used = "cap" if scale != "percentile" else "cap_fallback"
 
         # --- OPPONENT raw (from Opponent table) ---
         raw_opp_pts = float(o.get("PTS", 0))
@@ -411,44 +444,56 @@ def get_team_profile_stats(
         raw_opp_ftm = float(o.get("FTM", 0)) if "FTM" in o else 0.0
         raw_opp_ft  = _pct100(o.get("FT_PCT", 0)) if "FT_PCT" in o else 0.0
 
-        # --- Opponent normalization: dynamic per-season min/max ---
-        baselines = _opp_baselines(season_fmt)
-        if baselines:
-            opp_points = _minmax_inv(raw_opp_pts, *baselines["PTS"])
-            opp_fg_pct = _minmax_inv(raw_opp_fg,  *baselines["FG_PCT"])
-            opp_fg3_pct= _minmax_inv(raw_opp_3p,  *baselines["FG3_PCT"])
-            # new legs if we have baselines
-            opp_ast = _minmax_inv(raw_opp_ast, *baselines["AST"]) if "AST" in baselines else 0.0
-            opp_reb = _minmax_inv(raw_opp_reb, *baselines["REB"]) if "REB" in baselines else 0.0
-            opp_ftm = _minmax_inv(raw_opp_ftm, *baselines["FTM"]) if "FTM" in baselines else 0.0
-            opp_ft_pct = _minmax_inv(raw_opp_ft, *baselines["FT_PCT"]) if "FT_PCT" in baselines else 0.0
-            scale_hint = "dynamic"
+        # --- OPPONENT legs: league percentiles (preferred) ---
+        # These are inverted so that lower OPP_* => higher percentile (better defense).
+        opp_scale_used = "percentile"
+        opp_legs = {}
+        opp_pct = {}
+        if opp_scale == "percentile":
+            try:
+                opp_pct = team_row_opponent_percentiles(int(team_id), season_fmt)
+            except Exception:
+                opp_pct = {}
+
+        if opp_scale == "percentile" and opp_pct:
+            opp_points = opp_pct.get("opp_points_pct", 0.0)
+            opp_fg_pct = opp_pct.get("opp_fg_pct_pct", 0.0)
+            opp_fg3_pct= opp_pct.get("opp_fg3_pct_pct", 0.0)
+            opp_ast    = opp_pct.get("opp_ast_pct", 0.0)
+            opp_reb    = opp_pct.get("opp_reb_pct", 0.0)
+            opp_ftm    = opp_pct.get("opp_ftm_pct", 0.0)
+            opp_ft_pct = opp_pct.get("opp_ft_pct_pct", 0.0)
         else:
-            # fixed caps fallback
-            OPP_CAP = {"PTS": 130.0, "FG_PCT": 60.0, "FG3_PCT": 45.0, "AST": 35.0, "REB": 60.0, "FTM": 35.0, "FT_PCT": 90.0}
-            def inv_cap(v, cap):
-                v = max(0.0, min(float(v or 0.0), cap))
-                return round((1.0 - (v / cap)) * 100.0, 1)
-            opp_points = inv_cap(raw_opp_pts, OPP_CAP["PTS"])
-            opp_fg_pct = inv_cap(raw_opp_fg,  OPP_CAP["FG_PCT"])
-            opp_fg3_pct= inv_cap(raw_opp_3p,  OPP_CAP["FG3_PCT"])
-            opp_ast    = inv_cap(raw_opp_ast, OPP_CAP["AST"])
-            opp_reb    = inv_cap(raw_opp_reb, OPP_CAP["REB"])
-            opp_ftm    = inv_cap(raw_opp_ftm, OPP_CAP["FTM"])
-            opp_ft_pct = inv_cap(raw_opp_ft,  OPP_CAP["FT_PCT"])
-            scale_hint = "cap"
+            # --- Fallbacks: your existing dynamic min/max, then fixed caps ---
+            baselines = _opp_baselines(season_fmt)
+            if baselines:
+                opp_points = _minmax_inv(raw_opp_pts, *baselines["PTS"])
+                opp_fg_pct = _minmax_inv(raw_opp_fg,  *baselines["FG_PCT"])
+                opp_fg3_pct= _minmax_inv(raw_opp_3p,  *baselines["FG3_PCT"])
+                opp_ast = _minmax_inv(raw_opp_ast, *baselines["AST"]) if "AST" in baselines else 0.0
+                opp_reb = _minmax_inv(raw_opp_reb, *baselines["REB"]) if "REB" in baselines else 0.0
+                opp_ftm = _minmax_inv(raw_opp_ftm, *baselines["FTM"]) if "FTM" in baselines else 0.0
+                opp_ft_pct = _minmax_inv(raw_opp_ft, *baselines["FT_PCT"]) if "FT_PCT" in baselines else 0.0
+                opp_scale_used = "dynamic"
+            else:
+                OPP_CAP = {"PTS": 130.0, "FG_PCT": 60.0, "FG3_PCT": 45.0, "AST": 35.0, "REB": 60.0, "FTM": 35.0, "FT_PCT": 90.0}
+                def inv_cap(v, cap):
+                    v = max(0.0, min(float(v or 0.0), cap))
+                    return round((1.0 - (v / cap)) * 100.0, 1)
+                opp_points = inv_cap(raw_opp_pts, OPP_CAP["PTS"])
+                opp_fg_pct = inv_cap(raw_opp_fg,  OPP_CAP["FG_PCT"])
+                opp_fg3_pct= inv_cap(raw_opp_3p,  OPP_CAP["FG3_PCT"])
+                opp_ast    = inv_cap(raw_opp_ast, OPP_CAP["AST"])
+                opp_reb    = inv_cap(raw_opp_reb, OPP_CAP["REB"])
+                opp_ftm    = inv_cap(raw_opp_ftm, OPP_CAP["FTM"])
+                opp_ft_pct = inv_cap(raw_opp_ft,  OPP_CAP["FT_PCT"])
+                opp_scale_used = "cap"
 
         return {
-            # team (normalized + raw)
-            "points":   norm_team["points"],
-            "rebounds": norm_team["rebounds"],
-            "assists":  norm_team["assists"],
-            "blocks":   norm_team["blocks"],
-            "steals":   norm_team["steals"],
-            "fg_pct":   norm_team["fg_pct"],
-            "fg3_pct":  norm_team["fg3_pct"],
-            "turnovers": norm_tov,  # NEW (0–100, lower is better)
+            # TEAM legs (0–100) chosen by scale
+            **legs_team,
 
+            # Raw team hovers
             "raw_points": round(team_pts, 1),
             "raw_rebounds": round(team_reb, 1),
             "raw_assists": round(team_ast, 1),
@@ -456,26 +501,31 @@ def get_team_profile_stats(
             "raw_steals": round(team_stl, 1),
             "raw_fg_pct": round(team_fg, 1),
             "raw_fg3_pct": round(team_3p, 1),
-            "raw_tov": round(team_tov, 1),  # NEW
+            "raw_tov": round(team_tov, 1),
 
-            # opponent (normalized + raw)
+            # Opponent legs (0–100) chosen by opp_scale
             "opp_points": opp_points,
             "opp_fg_pct": opp_fg_pct,
             "opp_fg3_pct": opp_fg3_pct,
-            "opp_ast": opp_ast,       # NEW
-            "opp_reb": opp_reb,       # NEW
-            "opp_ftm": opp_ftm,       # NEW
-            "opp_ft_pct": opp_ft_pct, # NEW
+            "opp_ast": opp_ast,
+            "opp_reb": opp_reb,
+            "opp_ftm": opp_ftm,
+            "opp_ft_pct": opp_ft_pct,
 
+            # Raw opponent hovers
             "raw_opp_points": round(raw_opp_pts, 1),
             "raw_opp_fg_pct": round(raw_opp_fg, 1),
             "raw_opp_fg3_pct": round(raw_opp_3p, 1),
-            "raw_opp_ast": round(raw_opp_ast, 1),     # NEW
-            "raw_opp_reb": round(raw_opp_reb, 1),     # NEW
-            "raw_opp_ftm": round(raw_opp_ftm, 1),     # NEW
-            "raw_opp_ft_pct": round(raw_opp_ft, 1),   # NEW
+            "raw_opp_ast": round(raw_opp_ast, 1),
+            "raw_opp_reb": round(raw_opp_reb, 1),
+            "raw_opp_ftm": round(raw_opp_ftm, 1),
+            "raw_opp_ft_pct": round(raw_opp_ft, 1),
 
-            "opponent_scale": scale_hint,
+            # provenance/debug
+            "scale": scale,
+            "scale_used": team_scale_used,
+            "opp_scale": opp_scale,
+            "opponent_scale": opp_scale_used,  # keeps your existing key name
             "season": season_fmt,
         }
 
@@ -486,7 +536,8 @@ def get_team_profile_stats(
             "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,"raw_fg_pct":0,"raw_fg3_pct":0,"raw_tov":0,
             "opp_points":0,"opp_fg_pct":0,"opp_fg3_pct":0,"opp_ast":0,"opp_reb":0,"opp_ftm":0,"opp_ft_pct":0,
             "raw_opp_points":0,"raw_opp_fg_pct":0,"raw_opp_fg3_pct":0,"raw_opp_ast":0,"raw_opp_reb":0,"raw_opp_ftm":0,"raw_opp_ft_pct":0,
-            "opponent_scale":"error"
+            "scale": scale, "scale_used":"error", "opp_scale": opp_scale, "opponent_scale":"error",
+            "season": season_fmt,
         }
 
 # ---------------------------
