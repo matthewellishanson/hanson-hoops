@@ -42,6 +42,45 @@ function buildArcTrace() {
   return { x: arcX, y: arcY, mode: 'lines', line: { width: LINE_W, color: LINE_COLOR }, hoverinfo: 'skip', showlegend: false };
 }
 
+// --- helpers to make the pill summary like the team one ---
+function summarizeShots(shots) {
+  if (!shots || shots.length === 0) {
+    return { fg_pct: 0, fgm: 0, fga: 0, fg3_pct: 0, fg3m: 0, fg3a: 0 };
+  }
+  const fga = shots.length;
+  const fgm = shots.reduce((acc, s) => acc + (s.made ? 1 : 0), 0);
+  const fg_pct = fga ? (fgm / fga) * 100.0 : 0;
+
+  // 3PT detection: prefer SHOT_TYPE prefix, fall back to distance >= 23 ft
+  const isThree = (s) =>
+    (typeof s.shot_type === 'string' && s.shot_type.toUpperCase().startsWith('3PT')) ||
+    (typeof s.shot_distance === 'number' && s.shot_distance >= 23);
+
+  const threes = shots.filter(isThree);
+  const fg3a = threes.length;
+  const fg3m = threes.reduce((acc, s) => acc + (s.made ? 1 : 0), 0);
+  const fg3_pct = fg3a ? (fg3m / fg3a) * 100.0 : 0;
+
+  return {
+    fg_pct: Number.isFinite(fg_pct) ? fg_pct : 0,
+    fgm, fga,
+    fg3_pct: Number.isFinite(fg3_pct) ? fg3_pct : 0,
+    fg3m, fg3a,
+  };
+}
+
+const Pill = ({ title, s }) => (
+  <div className="map-pill for">
+    <div style={{ fontSize: 12, opacity: 0.9 }}>{title}</div>
+    <div style={{ fontSize: 14 }}>
+      <strong>FG</strong> {s.fg_pct?.toFixed?.(1) ?? s.fg_pct}% ({s.fgm}-{s.fga})
+    </div>
+    <div style={{ fontSize: 14 }}>
+      <strong>3PT</strong> {s.fg3_pct?.toFixed?.(1) ?? s.fg3_pct}% ({s.fg3m}-{s.fg3a})
+    </div>
+  </div>
+);
+
 export default function ShotMap({ playerId, season }) {
   const [data, setData] = useState(null);
 
@@ -52,9 +91,12 @@ export default function ShotMap({ playerId, season }) {
       try {
         const res = await api.get('/player_shots', { params: { player_id: playerId, season } });
         if (active) setData(res.data);
+        // ensure Plotly resizes under grid layouts
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       } catch (e) {
         console.error('Error fetching shots:', e);
         if (active) setData({ shots: [] });
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       }
     })();
     return () => { active = false; };
@@ -73,7 +115,8 @@ export default function ShotMap({ playerId, season }) {
     );
   }
 
-  if (!data.shots || data.shots.length === 0) {
+  const shots = data.shots || [];
+  if (shots.length === 0) {
     return (
       <div className="text-muted" style={{padding: 12}}>
         No shot attempts recorded for this player in {season}.
@@ -81,8 +124,8 @@ export default function ShotMap({ playerId, season }) {
     );
   }
 
-  const made = data.shots.filter(s => s.made);
-  const missed = data.shots.filter(s => !s.made);
+  const made = shots.filter(s => s.made);
+  const missed = shots.filter(s => !s.made);
 
   const madeTrace = {
     x: made.map(s => s.x),
@@ -106,24 +149,28 @@ export default function ShotMap({ playerId, season }) {
   };
 
   const arcTrace = buildArcTrace();
+  const summary = summarizeShots(shots);
 
   return (
-    <Plot
-      data={[madeTrace, missTrace, arcTrace]}
-      layout={{
-        showlegend: true,
-        legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.15 },
-        xaxis: { range: [-250, 250], visible: false, zeroline: false, showgrid: false, constrain: 'domain' },
-        yaxis: { range: [-50, 500], visible: false, zeroline: false, showgrid: false, scaleanchor: 'x', scaleratio: 1 },
-        margin: { t: 24, l: 16, r: 16, b: 24 },
-        shapes: courtShapesWithoutArc(),
-        paper_bgcolor: 'white',
-        plot_bgcolor: 'white',
-        autosize: true,
-      }}
-      style={{ width: '100%', height: '100%' }}
-      useResizeHandler
-      config={{ responsive: true, displayModeBar: false }}
-    />
+    <div className="map-wrap" style={{ height: '100%' }}>
+      {/* teal pill, same style as team map's "Shots For" */}
+      <Pill title="Shots" s={summary} />
+      <Plot
+        data={[madeTrace, missTrace, arcTrace]}
+        layout={{
+          showlegend: false, // keep it clean like team maps
+          xaxis: { range: [-250, 250], visible: false, zeroline: false, showgrid: false, constrain: 'domain' },
+          yaxis: { range: [-50, 500], visible: false, zeroline: false, showgrid: false, scaleanchor: 'x', scaleratio: 1 },
+          margin: { t: 4, l: 4, r: 4, b: 4 },
+          shapes: courtShapesWithoutArc(),
+          paper_bgcolor: 'white',
+          plot_bgcolor: 'white',
+          autosize: true,
+        }}
+        style={{ width: '100%', height: '100%' }}
+        useResizeHandler
+        config={{ responsive: true, displayModeBar: false }}
+      />
+    </div>
   );
 }
