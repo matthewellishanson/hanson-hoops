@@ -19,9 +19,13 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
       try {
         if (!teamId) return;
         const { data } = await api.get('/team_profile_stats', {
-          params: { team_id: teamId, season }
+          // Ask the backend to return percentile-scaled legs where supported
+          params: { team_id: teamId, season, scale: 'percentile', opp_scale: 'percentile' },
         });
-        if (alive) { setStats(data); setError(null); }
+        if (!alive) return;
+        console.log('[TeamRadar] payload', data);
+        setStats(data);
+        setError(null);
       } catch (e) {
         console.error('Error fetching team profile stats:', e);
         if (alive) { setStats(null); setError('Team data unavailable.'); }
@@ -34,64 +38,96 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
   if (error) return <div>{error}</div>;
   if (!stats) return <div>Loading team chart…</div>;
 
+  // helpers
+  const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v);
+  const clamp01 = (v) => Math.max(0, Math.min(100, v ?? 0));
+  const sanitize = (arr) => arr.map((v) => clamp01(isFiniteNumber(v) ? v : 0));
+  const anyFinite = (arr) => arr.some(isFiniteNumber);
+  const allZero = (arr) => arr.every((v) => v === 0);
+
   // ------- TEAM view (normalized 0–100) -------
   const teamTheta = ['Points', 'Rebounds', 'Assists', 'Blocks', 'Steals', 'FG%', '3P%', 'Turnovers (↓ better)'];
-  const teamR = [
-    stats.points, stats.rebounds, stats.assists,
-    stats.blocks, stats.steals, stats.fg_pct, stats.fg3_pct, stats.turnovers
+
+  // Keep raw -> hover text separate from visual r
+  const teamR_raw = [
+    stats?.points, stats?.rebounds, stats?.assists,
+    stats?.blocks, stats?.steals, stats?.fg_pct, stats?.fg3_pct, stats?.turnovers,
   ];
+  const teamR = sanitize(teamR_raw);
+
   const teamHover = [
-    `Points: ${stats.raw_points} PPG`,
-    `Rebounds: ${stats.raw_rebounds} RPG`,
-    `Assists: ${stats.raw_assists} APG`,
-    `Blocks: ${stats.raw_blocks} BPG`,
-    `Steals: ${stats.raw_steals} SPG`,
-    `FG%: ${stats.raw_fg_pct}%`,
-    `3P%: ${stats.raw_fg3_pct}%`,
-    `Turnovers: ${stats.raw_tov} TOPG`,
+    `Points: ${stats?.raw_points ?? '—'} PPG`,
+    `Rebounds: ${stats?.raw_rebounds ?? '—'} RPG`,
+    `Assists: ${stats?.raw_assists ?? '—'} APG`,
+    `Blocks: ${stats?.raw_blocks ?? '—'} BPG`,
+    `Steals: ${stats?.raw_steals ?? '—'} SPG`,
+    `FG%: ${stats?.raw_fg_pct ?? '—'}%`,
+    `3P%: ${stats?.raw_fg3_pct ?? '—'}%`,
+    `Turnovers: ${stats?.raw_tov ?? '—'} TOPG`,
   ];
 
   // ------- OPPONENT view (normalized 0–100) -------
   const oppTheta = ['Opp Pts', 'Opp FG%', 'Opp 3P%', 'Opp AST', 'Opp REB', 'Opp FTM', 'Opp FT%'];
-  const oppR = [
-    stats.opp_points, stats.opp_fg_pct, stats.opp_fg3_pct,
-    stats.opp_ast, stats.opp_reb, stats.opp_ftm, stats.opp_ft_pct
+
+  const oppR_raw = [
+    stats?.opp_points, stats?.opp_fg_pct, stats?.opp_fg3_pct,
+    stats?.opp_ast, stats?.opp_reb, stats?.opp_ftm, stats?.opp_ft_pct,
   ];
+  const oppR = sanitize(oppR_raw);
+
   const oppHover = [
-    `Opp Points: ${stats.raw_opp_points} PPG`,
-    `Opp FG%: ${stats.raw_opp_fg_pct}%`,
-    `Opp 3P%: ${stats.raw_opp_fg3_pct}%`,
-    `Opp Assists: ${stats.raw_opp_ast} APG`,
-    `Opp Rebounds: ${stats.raw_opp_reb} RPG`,
-    `Opp Free Throws: ${stats.raw_opp_ftm} FTM/G`,
-    `Opp FT%: ${stats.raw_opp_ft_pct}%`,
+    `Opp Points: ${stats?.raw_opp_points ?? '—'} PPG`,
+    `Opp FG%: ${stats?.raw_opp_fg_pct ?? '—'}%`,
+    `Opp 3P%: ${stats?.raw_opp_fg3_pct ?? '—'}%`,
+    `Opp Assists: ${stats?.raw_opp_ast ?? '—'} APG`,
+    `Opp Rebounds: ${stats?.raw_opp_reb ?? '—'} RPG`,
+    `Opp Free Throws: ${stats?.raw_opp_ftm ?? '—'} FTM/G`,
+    `Opp FT%: ${stats?.raw_opp_ft_pct ?? '—'}%`,
   ];
 
-  const isFiniteArray = (arr) => arr.every(v => Number.isFinite(v));
-  const validTeam = isFiniteArray(teamR);
-  const validOpp = isFiniteArray(oppR);
+  // Data availability: at least one finite value in the chosen mode
+  const hasTeamData = anyFinite(teamR_raw);
+  const hasOppData  = anyFinite(oppR_raw);
+  const r = mode === 'team' ? teamR : oppR;
+  const theta = mode === 'team' ? teamTheta : oppTheta;
+  const hover = mode === 'team' ? teamHover : oppHover;
+  const hasData = mode === 'team' ? hasTeamData : hasOppData;
 
-  const chartData = mode === 'team'
-    ? [{
-        type: 'scatterpolar',
-        r: teamR,
-        theta: teamTheta,
-        fill: 'toself',
-        text: teamHover,
-        hoverinfo: 'text',
-        name: `${teamName} (Team)`
-      }]
-    : [{
-        type: 'scatterpolar',
-        r: oppR,
-        theta: oppTheta,
-        fill: 'toself',
-        text: oppHover,
-        hoverinfo: 'text',
-        name: `${teamName} (Opponent)`
-      }];
+  // Optional: hide completely flat shape (all zeros)
+  // Toggle this block on/off based on your UX preference.
+  if (!hasData || allZero(r)) {
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="btn-group" role="group" aria-label="mode">
+          <button
+            type="button"
+            className={`btn btn-sm ${mode === 'team' ? 'btn-primary' : 'btn-outline-primary'}`}
+            onClick={() => setMode('team')}
+          >
+            Team
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${mode === 'opponent' ? 'btn-primary' : 'btn-outline-primary'}`}
+            onClick={() => setMode('opponent')}
+          >
+            Opponent
+          </button>
+        </div>
+        <div>Data unavailable for this selection.</div>
+      </div>
+    );
+  }
 
-  const hasData = mode === 'team' ? validTeam : validOpp;
+  const chartData = [{
+    type: 'scatterpolar',
+    r,
+    theta,
+    fill: 'toself',
+    text: hover,
+    hoverinfo: 'text',
+    name: mode === 'team' ? `${teamName} (Team)` : `${teamName} (Opponent)`,
+  }];
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -112,28 +148,24 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
         </button>
       </div>
 
-      {hasData ? (
-        <Plot
-          data={chartData}
-          layout={{
-            title: `${teamName} Profile`,
-            polar: {
-              radialaxis: {
-                visible: true,
-                range: [0, 100],
-                tickvals: [0, 20, 40, 60, 80, 100],
-              }
+      <Plot
+        data={chartData}
+        layout={{
+          title: `${teamName} Profile`,
+          polar: {
+            radialaxis: {
+              visible: true,
+              range: [0, 100],
+              tickvals: [0, 20, 40, 60, 80, 100],
             },
-            margin: { t: 24, l: 16, r: 16, b: 22 },
-            autosize: true
-          }}
-          style={{ width: '100%', height: '100%' }}
-          useResizeHandler
-          config={{ responsive: true, displayModeBar: false }}
-        />
-      ) : (
-        <div>Data unavailable for this selection.</div>
-      )}
+          },
+          margin: { t: 24, l: 16, r: 16, b: 22 },
+          autosize: true,
+        }}
+        style={{ width: '100%', height: '100%' }}
+        useResizeHandler
+        config={{ responsive: true, displayModeBar: false }}
+      />
     </div>
   );
 }
