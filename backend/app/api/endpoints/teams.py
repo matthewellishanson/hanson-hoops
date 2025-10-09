@@ -19,7 +19,7 @@ from nba_api.stats.static import teams as static_teams
 from app.utils.percentiles import team_row_percentiles, team_row_opponent_percentiles
 from ...utils.seasons import format_season, current_nba_season
 from ...utils.normalize import normalize_stats
-from app.main import with_cache_headers
+from app.utils.http import with_cache_headers
 
 router = APIRouter()
 
