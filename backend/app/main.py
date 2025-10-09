@@ -1,7 +1,9 @@
 # backend/app/main.py
 import os
-import requests
 import json
+import requests
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,30 +11,65 @@ from fastapi.middleware.gzip import GZipMiddleware
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# Use a runtime-only env var so it doesn't break Docker builds
-_proxy = os.environ.get("NBA_RUNTIME_PROXY")
-if _proxy:
-    os.environ["HTTP_PROXY"]  = _proxy
-    os.environ["HTTPS_PROXY"] = _proxy
-    os.environ["http_proxy"]  = _proxy
-    os.environ["https_proxy"] = _proxy
+from app.utils.seasons import current_nba_season, format_season
+from app.api.endpoints.teams import _league_shots_for_season
+
+# Optional: only for folks running behind a runtime proxy on the host
+_runtime_proxy = os.environ.get("NBA_RUNTIME_PROXY")
+if _runtime_proxy:
+    os.environ["HTTP_PROXY"]  = _runtime_proxy
+    os.environ["HTTPS_PROXY"] = _runtime_proxy
+    os.environ["http_proxy"]  = _runtime_proxy
+    os.environ["https_proxy"] = _runtime_proxy
     os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
 
-app = FastAPI()
+# -----------------------------
+# Lifespan (startup/shutdown)
+# -----------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ----- STARTUP -----
+    try:
+        season = current_nba_season()
+        season_fmt = format_season(season)
 
-# Enable gzip compression for large responses
+        # Warm the league-wide shot table (⚠️ this is what all teams slice from)
+        df = _league_shots_for_season(season_fmt)
+        got = 0 if df is None else len(df)
+        print(f"[startup] warmed league shots for {season_fmt} (rows={got})")
+
+        # Optional: lightly “touch” team IDs to exercise the cached DF once.
+        # (This doesn’t hit the network again; it’s in-memory slicing.)
+        try:
+            if df is not None and "TEAM_ID" in df.columns:
+                _ = df["TEAM_ID"].head(5).tolist()
+        except Exception:
+            pass
+
+    except Exception as e:
+        print(f"[startup] warm cache failed: {e}")
+
+    yield  # app runs
+
+    # ----- SHUTDOWN -----
+    print("[shutdown] app shutting down")
+
+app = FastAPI(lifespan=lifespan)
+
+# -----------------------------
+# Middleware
+# -----------------------------
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
-# ---- CORS (set exact origins) ----
 ALLOWED_ORIGINS = list(filter(None, [
-    os.getenv("FRONTEND_ORIGIN"),          # set this in Render for prod, e.g. https://hanson-hoops.onrender.com
-    "http://localhost:5173",               # Vite dev
+    os.getenv("FRONTEND_ORIGIN"),             # set in Render for prod
+    "http://localhost:5173",                  # Vite dev
     "http://localhost:3000",
-    "https://matthewellishanson.github.io" # if you use GH Pages
+    "https://matthewellishanson.github.io",   # GH Pages parent
 ]))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS or ["*"],   # fallback to * while testing
+    allow_origins=ALLOWED_ORIGINS or ["*"],   # keep * while testing if needed
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42,8 +79,9 @@ app.add_middleware(
 def health():
     return {"ok": True}
 
-# ---- OPTIONAL PROXY (only if you actually use one) ----
-# If you don’t use a proxy, you can delete this whole block.
+# -----------------------------
+# Optional proxy for nba_api
+# -----------------------------
 _PROXY = os.getenv("PROXY_URL") or os.getenv("NBA_STATS_PROXY")
 if _PROXY:
     os.environ["HTTP_PROXY"]  = _PROXY
@@ -53,14 +91,15 @@ if _PROXY:
     os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
     print(f"[startup] proxy enabled via PROXY_URL={_PROXY}")
 
-# ---- nba_api reliability patch (keep this) ----
+# -----------------------------
+# nba_api reliability patch
+# -----------------------------
 try:
     from nba_api.stats.library.http import NBAStatsHTTP
 except Exception as e:
     NBAStatsHTTP = None
     print("[startup] nba_api import failed:", e)
 
-# Default headers expected by stats.nba.com/Cloudflare
 DEFAULT_HEADERS = {
     "User-Agent": os.getenv(
         "NBA_USER_AGENT",
@@ -93,13 +132,12 @@ def _build_retrying_session() -> requests.Session:
     s.mount("https://", adapter)
     s.mount("http://", adapter)
     s.headers.update(DEFAULT_HEADERS)
-    # If a proxy is set via env, requests will honor it automatically.
-    return s
+    return s  # requests will honor *_PROXY envs automatically
 
 def _patch_nba_api():
     if NBAStatsHTTP is None:
         return
-    # Raise default timeout where possible
+    # raise default timeout where possible
     for attr in ("_DEFAULT_TIMEOUT", "timeout", "DEFAULT_TIMEOUT"):
         if hasattr(NBAStatsHTTP, attr):
             try:
@@ -108,14 +146,14 @@ def _patch_nba_api():
             except Exception as e:
                 print(f"[startup] failed to set {attr}: {e}")
 
-    # Update class default headers if available
+    # update default headers
     try:
         if hasattr(NBAStatsHTTP, "_DEFAULT_HEADERS"):
             NBAStatsHTTP._DEFAULT_HEADERS.update(DEFAULT_HEADERS)  # type: ignore[attr-defined]
     except Exception as e:
         print("[startup] failed to set NBAStatsHTTP headers:", e)
 
-    # Replace any shared session
+    # replace any shared session
     for cand in ("_SESSION", "SESSION", "session"):
         if hasattr(NBAStatsHTTP, cand):
             try:
@@ -125,7 +163,7 @@ def _patch_nba_api():
             except Exception as e:
                 print(f"[startup] failed to replace {cand}: {e}")
 
-    # Ensure per-instance sessions use retries too
+    # ensure per-instance sessions use retries too
     orig_init = getattr(NBAStatsHTTP, "__init__", None)
     def patched_init(self, *args, **kwargs):
         if orig_init:
@@ -137,6 +175,7 @@ def _patch_nba_api():
             except Exception:
                 pass
         setattr(self, "__retry_session__", sess)
+
     try:
         setattr(NBAStatsHTTP, "__init__", patched_init)
         print("[startup] wrapped NBAStatsHTTP.__init__")
@@ -145,16 +184,17 @@ def _patch_nba_api():
 
 _patch_nba_api()
 
-# ---- Helpers ----
+# -----------------------------
+# Small helper
+# -----------------------------
 def with_cache_headers(data: dict, seconds: int = 900) -> Response:
-    resp = Response(
-        content=json.dumps(data),
-        media_type="application/json"
-    )
+    resp = Response(content=json.dumps(data), media_type="application/json")
     resp.headers["Cache-Control"] = f"public, max-age={seconds}"
     return resp
 
-# ---- Routers ----
+# -----------------------------
+# Routers
+# -----------------------------
 from app.api.endpoints.players import router as players_router
 from app.api.endpoints.teams import router as teams_router
 app.include_router(players_router)
