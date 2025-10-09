@@ -1,25 +1,24 @@
 # backend/Dockerfile
-
 FROM python:3.12-slim
 
-# System deps (optional but good for pandas/numpy/http)
+# System deps (handy for numpy/pandas/http)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential curl ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+    build-essential curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
-# Workdir inside the image
 WORKDIR /app
 
-# Install deps first (better layer caching)
+# Better layer caching: install deps first
 COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy your backend code into /app
-# IMPORTANT: this places the "app" package at /app/app so "app.main:app" imports work
+# Copy backend code (puts your "app" package at /app/app -> app.main:app)
 COPY backend /app
 
-# Let Render tell us which port to use (defaults to 8000 locally)
-ENV PORT=8000
+# Env for logs and port
+ENV PYTHONUNBUFFERED=1 \
+    PORT=8000
 
-# Start FastAPI
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Start FastAPI (bind to $PORT for Render)
+# If you add WEB_CONCURRENCY in Render env, gunicorn will use it; else default to 2
+CMD ["bash", "-lc", "exec gunicorn -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT} --timeout 120 --workers ${WEB_CONCURRENCY:-2}"]
