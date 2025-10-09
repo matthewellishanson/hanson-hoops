@@ -1,5 +1,7 @@
 # backend/app/api/endpoints/teams.py
 from fastapi import APIRouter, Query, HTTPException, Body
+from app.utils.cache import cache
+from fastapi import Response
 from functools import lru_cache
 from typing import List, Optional, Literal
 import time
@@ -17,6 +19,7 @@ from nba_api.stats.static import teams as static_teams
 from app.utils.percentiles import team_row_percentiles, team_row_opponent_percentiles
 from ...utils.seasons import format_season, current_nba_season
 from ...utils.normalize import normalize_stats
+from app.main import with_cache_headers
 
 router = APIRouter()
 
@@ -328,14 +331,6 @@ def get_team_profile_stats(
 ):
     """
     Returns normalized team profile (0–100) + raw per-game numbers.
-
-    - Team legs:
-        * scale=percentile  -> percentile of league for the season (higher is better)
-        * scale=cap         -> your previous fixed-cap normalize_stats (default)
-    - Opponent legs:
-        * opp_scale=percentile -> inverse percentile (lower allowed = higher score)
-        * opp_scale=dynamic    -> per-season min/max inverse (default)
-        * opp_scale=cap        -> fixed-cap fallback
     """
     def _pctcol(s):
         if s is None:
@@ -361,214 +356,210 @@ def get_team_profile_stats(
         norm_tov = _invert_cap(team_tov, TEAM_CAPS["TOV"])
         return norm_team, norm_tov
 
-    try:
-        season = season or current_nba_season()
-        season_fmt = format_season(season)
+    # ---- cache key for this computation
+    season_eff = season or current_nba_season()
+    season_fmt = format_season(season_eff)
+    key = ("team_profile_stats", int(team_id), season_fmt, scale, opp_scale)
 
-        # --- TEAM (Base table) ---
-        df_team = _ldt_compat(season=season_fmt, season_type="Regular Season", per_mode="PerGame", measure="Base")
-        row_team = df_team.loc[df_team["TEAM_ID"] == int(team_id)]
-        if row_team.empty:
-            raise ValueError(f"TEAM_ID {team_id} not found in Base table")
-        t = row_team.iloc[0]
+    def _maker():
+        try:
+            # --- TEAM (Base table) ---
+            df_team = _ldt_compat(season=season_fmt, season_type="Regular Season", per_mode="PerGame", measure="Base")
+            row_team = df_team.loc[df_team["TEAM_ID"] == int(team_id)]
+            if row_team.empty:
+                raise ValueError(f"TEAM_ID {team_id} not found in Base table")
+            t = row_team.iloc[0]
 
-        # --- OPPONENT (Opponent table) ---
-        df_opp = _ldt_compat(season=season_fmt, season_type="Regular Season", per_mode="PerGame", measure="Opponent")
-        row_opp = df_opp.loc[df_opp["TEAM_ID"] == int(team_id)]
-        if row_opp.empty:
-            raise ValueError(f"TEAM_ID {team_id} not found in Opponent table")
-        o = row_opp.iloc[0]
+            # --- OPPONENT (Opponent table) ---
+            df_opp = _ldt_compat(season=season_fmt, season_type="Regular Season", per_mode="PerGame", measure="Opponent")
+            row_opp = df_opp.loc[df_opp["TEAM_ID"] == int(team_id)]
+            if row_opp.empty:
+                raise ValueError(f"TEAM_ID {team_id} not found in Opponent table")
+            o = row_opp.iloc[0]
 
-        # --- TEAM raw per-game (prefer game log for percentages) ---
-        pg = _team_pg_from_gamelog(int(team_id), season_fmt)
-        if pg:
-            team_pts = float(pg.get("PTS", 0.0))
-            team_reb = float(pg.get("REB", 0.0))
-            team_ast = float(pg.get("AST", 0.0))
-            team_blk = float(pg.get("BLK", 0.0))
-            team_stl = float(pg.get("STL", 0.0))
-            team_tov = float(pg.get("TOV", 0.0))
-            team_ftm = float(pg.get("FTM", 0.0))
-            team_fg  = float(pg.get("FG_PCT", 0.0))   # 0–100
-            team_3p  = float(pg.get("FG3_PCT", 0.0))  # 0–100
-            team_ft  = float(pg.get("FT_PCT", 0.0))   # 0–100
-        else:
-            team_pts = float(t.get("PTS", 0))
-            team_reb = float(t.get("REB", 0))
-            team_ast = float(t.get("AST", 0))
-            team_blk = float(t.get("BLK", 0))
-            team_stl = float(t.get("STL", 0))
-            team_tov = float(t.get("TOV", 0)) if "TOV" in t else 0.0
-            team_ftm = float(t.get("FTM", 0)) if "FTM" in t else 0.0
-            team_fg  = _pct100(t.get("FG_PCT", 0))
-            team_3p  = _pct100(t.get("FG3_PCT", 0))
-            team_ft  = _pct100(t.get("FT_PCT", 0)) if "FT_PCT" in t else 0.0
-
-        # -----------------------------
-        # TEAM legs: percentile or cap
-        # -----------------------------
-        if scale == "percentile":
-            # League distributions (ensure % columns are 0–100)
-            dist_pts = pd.to_numeric(df_team["PTS"], errors="coerce")
-            dist_reb = pd.to_numeric(df_team["REB"], errors="coerce")
-            dist_ast = pd.to_numeric(df_team["AST"], errors="coerce")
-            dist_blk = pd.to_numeric(df_team.get("BLK", 0), errors="coerce")
-            dist_stl = pd.to_numeric(df_team.get("STL", 0), errors="coerce")
-            dist_fg  = _pctcol(df_team.get("FG_PCT", 0))
-            dist_3p  = _pctcol(df_team.get("FG3_PCT", 0))
-            dist_tov = pd.to_numeric(df_team.get("TOV", 0), errors="coerce")
-
-            p_points   = _percentile_rank(dist_pts, team_pts)
-            p_rebounds = _percentile_rank(dist_reb, team_reb)
-            p_assists  = _percentile_rank(dist_ast, team_ast)
-            p_blocks   = _percentile_rank(dist_blk, team_blk)
-            p_steals   = _percentile_rank(dist_stl, team_stl)
-            p_fg       = _percentile_rank(dist_fg,  team_fg)
-            p_fg3      = _percentile_rank(dist_3p,  team_3p)
-            p_tov_raw  = _percentile_rank(dist_tov, team_tov)  # higher = more TOs
-            norm_team = {
-                "points": p_points, "rebounds": p_rebounds, "assists": p_assists,
-                "blocks": p_blocks, "steals": p_steals, "fg_pct": p_fg, "fg3_pct": p_fg3
-            }
-            norm_tov = round(100.0 - p_tov_raw, 1)             # invert
-            scale_used_team = "percentile"
-        else:
-            norm_team, norm_tov = _team_caps_norm(team_pts, team_reb, team_ast, team_blk, team_stl, team_fg, team_3p, team_ftm, team_ft, team_tov)
-            scale_used_team = "cap"
-
-        # --- OPPONENT raw (prefer df_opp; fall back to pg-derived when available) ---
-        # Some nba_api versions *don’t* expose OPP_* columns even for Opponent measure.
-        # We’ll always read the row values (same names as Base in your debug), then treat them as “allowed”.
-        raw_opp_pts = float(o.get("PTS", 0))
-        raw_opp_fg  = _pct100(o.get("FG_PCT", 0))
-        raw_opp_3p  = _pct100(o.get("FG3_PCT", 0))
-        raw_opp_ast = float(o.get("AST", 0)) if "AST" in o else 0.0
-        raw_opp_reb = float(o.get("REB", 0)) if "REB" in o else 0.0
-        raw_opp_ftm = float(o.get("FTM", 0)) if "FTM" in o else 0.0
-        raw_opp_ft  = _pct100(o.get("FT_PCT", 0)) if "FT_PCT" in o else 0.0
-
-        # ---------------------------------
-        # OPP legs: percentile/dynamic/cap
-        # ---------------------------------
-        # Detect whether df_opp actually has OPP_* columns
-        has_opp_prefix = any(c.startswith("OPP_") for c in df_opp.columns)
-
-        def _opp_dynamic():
-            baselines = _opp_baselines(season_fmt)
-            if not baselines:
-                return None
-            return {
-                "opp_points": _minmax_inv(raw_opp_pts, *baselines["PTS"]),
-                "opp_fg_pct": _minmax_inv(raw_opp_fg,  *baselines["FG_PCT"]),
-                "opp_fg3_pct": _minmax_inv(raw_opp_3p, *baselines["FG3_PCT"]),
-                "opp_ast": _minmax_inv(raw_opp_ast, *baselines["AST"]) if "AST" in baselines else 0.0,
-                "opp_reb": _minmax_inv(raw_opp_reb, *baselines["REB"]) if "REB" in baselines else 0.0,
-                "opp_ftm": _minmax_inv(raw_opp_ftm, *baselines["FTM"]) if "FTM" in baselines else 0.0,
-                "opp_ft_pct": _minmax_inv(raw_opp_ft, *baselines["FT_PCT"]) if "FT_PCT" in baselines else 0.0,
-                "opponent_scale": "dynamic",
-            }
-
-        def _opp_cap():
-            OPP_CAP = {"PTS": 130.0, "FG_PCT": 60.0, "FG3_PCT": 45.0, "AST": 35.0, "REB": 60.0, "FTM": 35.0, "FT_PCT": 90.0}
-            def inv_cap(v, cap):
-                v = max(0.0, min(float(v or 0.0), cap))
-                return round((1.0 - (v / cap)) * 100.0, 1)
-            return {
-                "opp_points": inv_cap(raw_opp_pts, OPP_CAP["PTS"]),
-                "opp_fg_pct": inv_cap(raw_opp_fg,  OPP_CAP["FG_PCT"]),
-                "opp_fg3_pct": inv_cap(raw_opp_3p, OPP_CAP["FG3_PCT"]),
-                "opp_ast":    inv_cap(raw_opp_ast, OPP_CAP["AST"]),
-                "opp_reb":    inv_cap(raw_opp_reb, OPP_CAP["REB"]),
-                "opp_ftm":    inv_cap(raw_opp_ftm, OPP_CAP["FTM"]),
-                "opp_ft_pct": inv_cap(raw_opp_ft,  OPP_CAP["FT_PCT"]),
-                "opponent_scale": "cap",
-            }
-
-        if opp_scale == "percentile":
-            if has_opp_prefix:
-                # Build league distributions from df_opp’s OPP_* columns
-                dist_opp_pts = pd.to_numeric(df_opp.get("OPP_PTS"), errors="coerce")
-                dist_opp_fg  = _pctcol(df_opp.get("OPP_FG_PCT"))
-                dist_opp_3p  = _pctcol(df_opp.get("OPP_FG3_PCT"))
-                dist_opp_ast = pd.to_numeric(df_opp.get("OPP_AST", 0), errors="coerce")
-                dist_opp_reb = pd.to_numeric(df_opp.get("OPP_REB", 0), errors="coerce")
-                dist_opp_ftm = pd.to_numeric(df_opp.get("OPP_FTM", 0), errors="coerce")
-                dist_opp_ft  = _pctcol(df_opp.get("OPP_FT_PCT", 0))
-
-                def inv_pct(series, v):
-                    raw = _percentile_rank(series, v)
-                    return round(100.0 - raw, 1)
-
-                opp_points  = inv_pct(dist_opp_pts, raw_opp_pts)
-                opp_fg_pct  = inv_pct(dist_opp_fg,  raw_opp_fg)
-                opp_fg3_pct = inv_pct(dist_opp_3p,  raw_opp_3p)
-                opp_ast     = inv_pct(dist_opp_ast, raw_opp_ast)
-                opp_reb     = inv_pct(dist_opp_reb, raw_opp_reb)
-                opp_ftm     = inv_pct(dist_opp_ftm, raw_opp_ftm)
-                opp_ft_pct  = inv_pct(dist_opp_ft,  raw_opp_ft)
-
-                opp_norm = {
-                    "opp_points": opp_points, "opp_fg_pct": opp_fg_pct, "opp_fg3_pct": opp_fg3_pct,
-                    "opp_ast": opp_ast, "opp_reb": opp_reb, "opp_ftm": opp_ftm, "opp_ft_pct": opp_ft_pct,
-                    "opponent_scale": "percentile",
-                }
+            # --- TEAM raw per-game (prefer game log for percentages) ---
+            pg = _team_pg_from_gamelog(int(team_id), season_fmt)
+            if pg:
+                team_pts = float(pg.get("PTS", 0.0))
+                team_reb = float(pg.get("REB", 0.0))
+                team_ast = float(pg.get("AST", 0.0))
+                team_blk = float(pg.get("BLK", 0.0))
+                team_stl = float(pg.get("STL", 0.0))
+                team_tov = float(pg.get("TOV", 0.0))
+                team_ftm = float(pg.get("FTM", 0.0))
+                team_fg  = float(pg.get("FG_PCT", 0.0))   # 0–100
+                team_3p  = float(pg.get("FG3_PCT", 0.0))  # 0–100
+                team_ft  = float(pg.get("FT_PCT", 0.0))   # 0–100
             else:
-                # No OPP_* columns → fallback to dynamic first, then cap
+                team_pts = float(t.get("PTS", 0))
+                team_reb = float(t.get("REB", 0))
+                team_ast = float(t.get("AST", 0))
+                team_blk = float(t.get("BLK", 0))
+                team_stl = float(t.get("STL", 0))
+                team_tov = float(t.get("TOV", 0)) if "TOV" in t else 0.0
+                team_ftm = float(t.get("FTM", 0)) if "FTM" in t else 0.0
+                team_fg  = _pct100(t.get("FG_PCT", 0))
+                team_3p  = _pct100(t.get("FG3_PCT", 0))
+                team_ft  = _pct100(t.get("FT_PCT", 0)) if "FT_PCT" in t else 0.0
+
+            # TEAM legs
+            if scale == "percentile":
+                dist_pts = pd.to_numeric(df_team["PTS"], errors="coerce")
+                dist_reb = pd.to_numeric(df_team["REB"], errors="coerce")
+                dist_ast = pd.to_numeric(df_team["AST"], errors="coerce")
+                dist_blk = pd.to_numeric(df_team.get("BLK", 0), errors="coerce")
+                dist_stl = pd.to_numeric(df_team.get("STL", 0), errors="coerce")
+                dist_fg  = _pctcol(df_team.get("FG_PCT", 0))
+                dist_3p  = _pctcol(df_team.get("FG3_PCT", 0))
+                dist_tov = pd.to_numeric(df_team.get("TOV", 0), errors="coerce")
+
+                p_points   = _percentile_rank(dist_pts, team_pts)
+                p_rebounds = _percentile_rank(dist_reb, team_reb)
+                p_assists  = _percentile_rank(dist_ast, team_ast)
+                p_blocks   = _percentile_rank(dist_blk, team_blk)
+                p_steals   = _percentile_rank(dist_stl, team_stl)
+                p_fg       = _percentile_rank(dist_fg,  team_fg)
+                p_fg3      = _percentile_rank(dist_3p,  team_3p)
+                p_tov_raw  = _percentile_rank(dist_tov, team_tov)  # higher = more TOs
+
+                norm_team = {
+                    "points": p_points, "rebounds": p_rebounds, "assists": p_assists,
+                    "blocks": p_blocks, "steals": p_steals, "fg_pct": p_fg, "fg3_pct": p_fg3
+                }
+                norm_tov = round(100.0 - p_tov_raw, 1)
+                scale_used_team = "percentile"
+            else:
+                norm_team, norm_tov = _team_caps_norm(team_pts, team_reb, team_ast, team_blk, team_stl, team_fg, team_3p, team_ftm, team_ft, team_tov)
+                scale_used_team = "cap"
+
+            # OPPONENT raw (read from row; treat as "allowed")
+            raw_opp_pts = float(o.get("PTS", 0))
+            raw_opp_fg  = _pct100(o.get("FG_PCT", 0))
+            raw_opp_3p  = _pct100(o.get("FG3_PCT", 0))
+            raw_opp_ast = float(o.get("AST", 0)) if "AST" in o else 0.0
+            raw_opp_reb = float(o.get("REB", 0)) if "REB" in o else 0.0
+            raw_opp_ftm = float(o.get("FTM", 0)) if "FTM" in o else 0.0
+            raw_opp_ft  = _pct100(o.get("FT_PCT", 0)) if "FT_PCT" in o else 0.0
+
+            # OPP legs (percentile/dynamic/cap), reusing your helpers
+            df_opp_full = _ldt_compat(season=season_fmt, season_type="Regular Season", per_mode="PerGame", measure="Opponent")
+            has_opp_prefix = any(c.startswith("OPP_") for c in df_opp_full.columns)
+
+            def _opp_baselines_wrap():
+                return _opp_baselines(season_fmt)
+
+            def _opp_dynamic():
+                baselines = _opp_baselines_wrap()
+                if not baselines:
+                    return None
+                return {
+                    "opp_points": _minmax_inv(raw_opp_pts, *baselines["PTS"]),
+                    "opp_fg_pct": _minmax_inv(raw_opp_fg,  *baselines["FG_PCT"]),
+                    "opp_fg3_pct": _minmax_inv(raw_opp_3p, *baselines["FG3_PCT"]),
+                    "opp_ast": _minmax_inv(raw_opp_ast, *baselines["AST"]) if "AST" in baselines else 0.0,
+                    "opp_reb": _minmax_inv(raw_opp_reb, *baselines["REB"]) if "REB" in baselines else 0.0,
+                    "opp_ftm": _minmax_inv(raw_opp_ftm, *baselines["FTM"]) if "FTM" in baselines else 0.0,
+                    "opp_ft_pct": _minmax_inv(raw_opp_ft, *baselines["FT_PCT"]) if "FT_PCT" in baselines else 0.0,
+                    "opponent_scale": "dynamic",
+                }
+
+            def _opp_cap():
+                OPP_CAP = {"PTS": 130.0, "FG_PCT": 60.0, "FG3_PCT": 45.0, "AST": 35.0, "REB": 60.0, "FTM": 35.0, "FT_PCT": 90.0}
+                def inv_cap(v, cap):
+                    v = max(0.0, min(float(v or 0.0), cap))
+                    return round((1.0 - (v / cap)) * 100.0, 1)
+                return {
+                    "opp_points": inv_cap(raw_opp_pts, OPP_CAP["PTS"]),
+                    "opp_fg_pct": inv_cap(raw_opp_fg,  OPP_CAP["FG_PCT"]),
+                    "opp_fg3_pct": inv_cap(raw_opp_3p, OPP_CAP["FG3_PCT"]),
+                    "opp_ast":    inv_cap(raw_opp_ast, OPP_CAP["AST"]),
+                    "opp_reb":    inv_cap(raw_opp_reb, OPP_CAP["REB"]),
+                    "opp_ftm":    inv_cap(raw_opp_ftm, OPP_CAP["FTM"]),
+                    "opp_ft_pct": inv_cap(raw_opp_ft,  OPP_CAP["FT_PCT"]),
+                    "opponent_scale": "cap",
+                }
+
+            if opp_scale == "percentile":
+                if has_opp_prefix:
+                    dist_opp_pts = pd.to_numeric(df_opp_full.get("OPP_PTS"), errors="coerce")
+                    dist_opp_fg  = _pctcol(df_opp_full.get("OPP_FG_PCT"))
+                    dist_opp_3p  = _pctcol(df_opp_full.get("OPP_FG3_PCT"))
+                    dist_opp_ast = pd.to_numeric(df_opp_full.get("OPP_AST", 0), errors="coerce")
+                    dist_opp_reb = pd.to_numeric(df_opp_full.get("OPP_REB", 0), errors="coerce")
+                    dist_opp_ftm = pd.to_numeric(df_opp_full.get("OPP_FTM", 0), errors="coerce")
+                    dist_opp_ft  = _pctcol(df_opp_full.get("OPP_FT_PCT", 0))
+                    def inv_pct(series, v):
+                        raw = _percentile_rank(series, v)
+                        return round(100.0 - raw, 1)
+                    opp_norm = {
+                        "opp_points": inv_pct(dist_opp_pts, raw_opp_pts),
+                        "opp_fg_pct": inv_pct(dist_opp_fg,  raw_opp_fg),
+                        "opp_fg3_pct": inv_pct(dist_opp_3p,  raw_opp_3p),
+                        "opp_ast":     inv_pct(dist_opp_ast, raw_opp_ast),
+                        "opp_reb":     inv_pct(dist_opp_reb, raw_opp_reb),
+                        "opp_ftm":     inv_pct(dist_opp_ftm, raw_opp_ftm),
+                        "opp_ft_pct":  inv_pct(dist_opp_ft,  raw_opp_ft),
+                        "opponent_scale": "percentile",
+                    }
+                else:
+                    opp_norm = _opp_dynamic() or _opp_cap()
+            elif opp_scale == "dynamic":
                 opp_norm = _opp_dynamic() or _opp_cap()
-        elif opp_scale == "dynamic":
-            opp_norm = _opp_dynamic() or _opp_cap()
-        else:
-            opp_norm = _opp_cap()
+            else:
+                opp_norm = _opp_cap()
 
-        return {
-            # team (normalized + raw)
-            "points":   norm_team["points"],
-            "rebounds": norm_team["rebounds"],
-            "assists":  norm_team["assists"],
-            "blocks":   norm_team["blocks"],
-            "steals":   norm_team["steals"],
-            "fg_pct":   norm_team["fg_pct"],
-            "fg3_pct":  norm_team["fg3_pct"],
-            "turnovers": norm_tov,
+            # Final payload
+            return {
+                "points":   norm_team["points"],
+                "rebounds": norm_team["rebounds"],
+                "assists":  norm_team["assists"],
+                "blocks":   norm_team["blocks"],
+                "steals":   norm_team["steals"],
+                "fg_pct":   norm_team["fg_pct"],
+                "fg3_pct":  norm_team["fg3_pct"],
+                "turnovers": norm_tov,
 
-            "raw_points": round(team_pts, 1),
-            "raw_rebounds": round(team_reb, 1),
-            "raw_assists": round(team_ast, 1),
-            "raw_blocks": round(team_blk, 1),
-            "raw_steals": round(team_stl, 1),
-            "raw_fg_pct": round(team_fg, 1),
-            "raw_fg3_pct": round(team_3p, 1),
-            "raw_tov": round(team_tov, 1),
+                "raw_points": round(team_pts, 1),
+                "raw_rebounds": round(team_reb, 1),
+                "raw_assists": round(team_ast, 1),
+                "raw_blocks": round(team_blk, 1),
+                "raw_steals": round(team_stl, 1),
+                "raw_fg_pct": round(team_fg, 1),
+                "raw_fg3_pct": round(team_3p, 1),
+                "raw_tov": round(team_tov, 1),
 
-            # opponent (normalized + raw)
-            **opp_norm,
-            "raw_opp_points": round(raw_opp_pts, 1),
-            "raw_opp_fg_pct": round(raw_opp_fg, 1),
-            "raw_opp_fg3_pct": round(raw_opp_3p, 1),
-            "raw_opp_ast": round(raw_opp_ast, 1),
-            "raw_opp_reb": round(raw_opp_reb, 1),
-            "raw_opp_ftm": round(raw_opp_ftm, 1),
-            "raw_opp_ft_pct": round(raw_opp_ft, 1),
+                **opp_norm,
+                "raw_opp_points": round(raw_opp_pts, 1),
+                "raw_opp_fg_pct": round(raw_opp_fg, 1),
+                "raw_opp_fg3_pct": round(raw_opp_3p, 1),
+                "raw_opp_ast": round(raw_opp_ast, 1),
+                "raw_opp_reb": round(raw_opp_reb, 1),
+                "raw_opp_ftm": round(raw_opp_ftm, 1),
+                "raw_opp_ft_pct": round(raw_opp_ft, 1),
 
-            "scale": scale,
-            "scale_used": scale_used_team,
-            "opp_scale": opp_scale,
-            "season": season_fmt,
-        }
+                "scale": scale,
+                "scale_used": scale == "percentile" and "percentile" or "cap",
+                "opp_scale": opp_scale,
+                "season": season_fmt,
+            }
 
-    except Exception as e:
-        print(f"[team_profile_stats] error: {e}")
-        return {
-            "points":0,"rebounds":0,"assists":0,"blocks":0,"steals":0,"fg_pct":0,"fg3_pct":0,"turnovers":0,
-            "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,"raw_fg_pct":0,"raw_fg3_pct":0,"raw_tov":0,
-            "opp_points":0,"opp_fg_pct":0,"opp_fg3_pct":0,"opp_ast":0,"opp_reb":0,"opp_ftm":0,"opp_ft_pct":0,
-            "raw_opp_points":0,"raw_opp_fg_pct":0,"raw_opp_fg3_pct":0,"raw_opp_ast":0,"raw_opp_reb":0,"raw_opp_ftm":0,"raw_opp_ft_pct":0,
-            "scale": scale,
-            "scale_used": "error",
-            "opp_scale": opp_scale,
-            "opponent_scale":"error",
-            "season": season or "",
-        }
+        except Exception as e:
+            print(f"[team_profile_stats] error: {e}")
+            return {
+                "points":0,"rebounds":0,"assists":0,"blocks":0,"steals":0,"fg_pct":0,"fg3_pct":0,"turnovers":0,
+                "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,"raw_fg_pct":0,"raw_fg3_pct":0,"raw_tov":0,
+                "opp_points":0,"opp_fg_pct":0,"opp_fg3_pct":0,"opp_ast":0,"opp_reb":0,"opp_ftm":0,"opp_ft_pct":0,
+                "raw_opp_points":0,"raw_opp_fg_pct":0,"raw_opp_fg3_pct":0,"raw_opp_ast":0,"raw_opp_reb":0,"raw_opp_ftm":0,"raw_opp_ft_pct":0,
+                "scale": scale,
+                "scale_used": "error",
+                "opp_scale": opp_scale,
+                "opponent_scale":"error",
+                "season": season_fmt,
+            }
+
+    # Use your cache (add ttl=900 if your cache supports it)
+    payload = cache.get_or_set(key, _maker)
+    return with_cache_headers(payload, seconds=900)
 
 # ---------------------------
 # Cached league shots
@@ -607,74 +598,79 @@ def _league_shots_for_season(season_fmt: str) -> pd.DataFrame:
 @router.get("/team_shots")
 def team_shots(team_id: int = Query(...), season: str = Query(...)):
     season_fmt = format_season(season)
-    df = _league_shots_for_season(season_fmt)
+    key = ("team_shots", int(team_id), season_fmt)
 
-    if df.empty:
+    def _maker():
+        df = _league_shots_for_season(season_fmt)
+        if df.empty:
+            return {
+                "season": season_fmt, "team_id": team_id,
+                "shots_for": [], "shots_against": [],
+                "summary_for": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
+                "summary_against": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
+            }
+
+        cols = [
+            "LOC_X","LOC_Y","SHOT_MADE_FLAG","TEAM_ID",
+            "SHOT_ZONE_BASIC","SHOT_DISTANCE","SHOT_TYPE","HTM","VTM"
+        ]
+        df_local = df[[c for c in cols if c in df.columns]].copy()
+
+        teams_data = static_teams.get_teams()
+        team_row = next((t for t in teams_data if int(t["id"]) == int(team_id)), None)
+        team_abbr = (team_row or {}).get("abbreviation")
+
+        if "HTM" in df_local.columns and "VTM" in df_local.columns and team_abbr:
+            df_local["HTM"] = df_local["HTM"].astype(str).str.upper()
+            df_local["VTM"] = df_local["VTM"].astype(str).str.upper()
+            involves = (df_local["HTM"] == team_abbr) | (df_local["VTM"] == team_abbr)
+            df_local = df_local[involves].copy()
+
+        shots_for_df = df_local[df_local["TEAM_ID"] == int(team_id)] if "TEAM_ID" in df_local.columns else pd.DataFrame()
+        shots_against_df = df_local[df_local["TEAM_ID"] != int(team_id)] if "TEAM_ID" in df_local.columns else pd.DataFrame()
+
+        def to_events(frame: pd.DataFrame) -> List[dict]:
+            if frame.empty: return []
+            return [
+                {
+                    "x": float(r["LOC_X"]),
+                    "y": float(r["LOC_Y"]),
+                    "made": bool(r["SHOT_MADE_FLAG"]),
+                    "shot_zone": (r["SHOT_ZONE_BASIC"] if pd.notna(r.get("SHOT_ZONE_BASIC")) else None),
+                    "shot_distance": (float(r["SHOT_DISTANCE"]) if pd.notna(r.get("SHOT_DISTANCE")) else None),
+                }
+                for _, r in frame.iterrows()
+            ]
+
+        def summarize(frame: pd.DataFrame) -> dict:
+            if frame.empty:
+                return {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0}
+            fga = int(len(frame))
+            fgm = int(frame["SHOT_MADE_FLAG"].fillna(0).astype(int).sum())
+            fg_pct = round((fgm / fga) * 100.0, 1) if fga else 0.0
+
+            if "SHOT_TYPE" in frame.columns:
+                threes = frame[frame["SHOT_TYPE"].astype(str).str.startswith("3PT", na=False)]
+            else:
+                threes = frame[frame.get("SHOT_DISTANCE", pd.Series(dtype=float)) >= 23]
+
+            fg3a = int(len(threes))
+            fg3m = int(threes["SHOT_MADE_FLAG"].fillna(0).astype(int).sum()) if fg3a else 0
+            fg3_pct = round((fg3m / fg3a) * 100.0, 1) if fg3a else 0.0
+
+            return {"fg_pct": fg_pct, "fgm": fgm, "fga": fga, "fg3_pct": fg3_pct, "fg3m": fg3m, "fg3a": fg3a}
+
         return {
-            "season": season_fmt, "team_id": team_id,
-            "shots_for": [], "shots_against": [],
-            "summary_for": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
-            "summary_against": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
+            "season": season_fmt,
+            "team_id": team_id,
+            "shots_for": to_events(shots_for_df),
+            "shots_against": to_events(shots_against_df),
+            "summary_for": summarize(shots_for_df),
+            "summary_against": summarize(shots_against_df),
         }
 
-    cols = [
-        "LOC_X","LOC_Y","SHOT_MADE_FLAG","TEAM_ID",
-        "SHOT_ZONE_BASIC","SHOT_DISTANCE","SHOT_TYPE","HTM","VTM"
-    ]
-    df = df[[c for c in cols if c in df.columns]].copy()
-
-    teams_data = static_teams.get_teams()
-    team_row = next((t for t in teams_data if int(t["id"]) == int(team_id)), None)
-    team_abbr = (team_row or {}).get("abbreviation")
-
-    if "HTM" in df.columns and "VTM" in df.columns and team_abbr:
-        df["HTM"] = df["HTM"].astype(str).str.upper()
-        df["VTM"] = df["VTM"].astype(str).str.upper()
-        involves = (df["HTM"] == team_abbr) | (df["VTM"] == team_abbr)
-        df = df[involves].copy()
-
-    shots_for_df = df[df["TEAM_ID"] == int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
-    shots_against_df = df[df["TEAM_ID"] != int(team_id)] if "TEAM_ID" in df.columns else pd.DataFrame()
-
-    def to_events(frame: pd.DataFrame) -> List[dict]:
-        if frame.empty: return []
-        return [
-            {
-                "x": float(r["LOC_X"]),
-                "y": float(r["LOC_Y"]),
-                "made": bool(r["SHOT_MADE_FLAG"]),
-                "shot_zone": (r["SHOT_ZONE_BASIC"] if pd.notna(r.get("SHOT_ZONE_BASIC")) else None),
-                "shot_distance": (float(r["SHOT_DISTANCE"]) if pd.notna(r.get("SHOT_DISTANCE")) else None),
-            }
-            for _, r in frame.iterrows()
-        ]
-
-    def summarize(frame: pd.DataFrame) -> dict:
-        if frame.empty:
-            return {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0}
-        fga = int(len(frame))
-        fgm = int(frame["SHOT_MADE_FLAG"].fillna(0).astype(int).sum())
-        fg_pct = round((fgm / fga) * 100.0, 1) if fga else 0.0
-
-        if "SHOT_TYPE" in frame.columns:
-            threes = frame[frame["SHOT_TYPE"].astype(str).str.startswith("3PT", na=False)]
-        else:
-            threes = frame[frame.get("SHOT_DISTANCE", pd.Series(dtype=float)) >= 23]
-
-        fg3a = int(len(threes))
-        fg3m = int(threes["SHOT_MADE_FLAG"].fillna(0).astype(int).sum()) if fg3a else 0
-        fg3_pct = round((fg3m / fg3a) * 100.0, 1) if fg3a else 0.0
-
-        return {"fg_pct": fg_pct, "fgm": fgm, "fga": fga, "fg3_pct": fg3_pct, "fg3m": fg3m, "fg3a": fg3a}
-
-    return {
-        "season": season_fmt,
-        "team_id": team_id,
-        "shots_for": to_events(shots_for_df),
-        "shots_against": to_events(shots_against_df),
-        "summary_for": summarize(shots_for_df),
-        "summary_against": summarize(shots_against_df),
-    }
+    payload = cache.get_or_set(key, _maker)  # add ttl=900 if your cache supports it
+    return with_cache_headers(payload, seconds=900)
 
 # ---------------------------
 # Debug helpers

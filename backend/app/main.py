@@ -1,9 +1,11 @@
 # backend/app/main.py
 import os
 import requests
-from fastapi import FastAPI
+import json
+from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -17,6 +19,9 @@ if _proxy:
     os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
 
 app = FastAPI()
+
+# Enable gzip compression for large responses
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # ---- CORS (set exact origins) ----
 ALLOWED_ORIGINS = list(filter(None, [
@@ -139,6 +144,15 @@ def _patch_nba_api():
         print("[startup] failed to wrap __init__:", e)
 
 _patch_nba_api()
+
+# ---- Helpers ----
+def with_cache_headers(data: dict, seconds: int = 900) -> Response:
+    resp = Response(
+        content=json.dumps(data),
+        media_type="application/json"
+    )
+    resp.headers["Cache-Control"] = f"public, max-age={seconds}"
+    return resp
 
 # ---- Routers ----
 from app.api.endpoints.players import router as players_router
