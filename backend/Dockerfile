@@ -4,8 +4,8 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Install Python deps (prefer wheels to avoid compilers)
-COPY backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --prefer-binary -r /app/requirements.txt
+COPY backend/requirements.txt requirements.txt
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Copy backend source
 COPY backend /app
