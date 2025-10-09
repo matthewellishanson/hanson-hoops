@@ -7,6 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+# Use a runtime-only env var so it doesn't break Docker builds
+_proxy = os.environ.get("NBA_RUNTIME_PROXY")
+if _proxy:
+    os.environ["HTTP_PROXY"]  = _proxy
+    os.environ["HTTPS_PROXY"] = _proxy
+    os.environ["http_proxy"]  = _proxy
+    os.environ["https_proxy"] = _proxy
+    os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
+
 app = FastAPI()
 
 # ---- CORS (set exact origins) ----
