@@ -18,12 +18,9 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
     (async () => {
       try {
         if (!playerId) return;
-        console.log('[Radar] fetching', { playerId, season });
         const { data } = await api.get('/player_profile_stats', {
-          // ask for percentile scaling explicitly (safe even if backend defaults)
           params: { player_id: playerId, season, scale: 'percentile' },
         });
-        console.log('[Radar] payload', data);
         setStats(data);
         setError(null);
       } catch (e) {
@@ -38,28 +35,24 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
   if (error) return <div>{error}</div>;
   if (!stats) return <div>Loading chart...</div>;
 
-  // helpers
   const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v);
   const clamp01 = (v) => Math.max(0, Math.min(100, v ?? 0));
 
-  // The exact keys you plot (order matches theta)
   const metricKeys = [
     'points', 'rebounds', 'assists', 'blocks', 'steals',
     'fg_pct', 'fg3_pct', 'ft_rate', 'ft_pct', 'turnovers',
   ];
 
-  // Availability: at least one numeric metric (0 is valid)
-  const hasAnyMetric = !!stats && metricKeys.some((k) => isFiniteNumber(stats[k]));
+  const hasAnyMetric = metricKeys.some((k) => isFiniteNumber(stats[k]));
   if (!hasAnyMetric) return <div>Data unavailable for this selection.</div>;
 
-  // r values (visual 0–100); sanitize NaN/undefined → 0 and clamp
   const theta = [
     'Points', 'Rebounds', 'Assists', 'Blocks', 'Steals',
     'FG%', '3P%', 'FT Rate', 'FT%', 'Turnovers (↓ better)',
   ];
+
   const r = metricKeys.map((k) => clamp01(isFiniteNumber(stats[k]) ? stats[k] : 0));
 
-  // Tooltips: show real numbers from backend (raw fields)
   const hoverText = [
     `Points: ${stats.raw_points ?? '—'} PPG`,
     `Rebounds: ${stats.raw_rebounds ?? '—'} RPG`,
@@ -73,23 +66,27 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
     `Turnovers: ${stats.raw_tov ?? '—'} TOPG`,
   ];
 
-  // Optional: if you want to hide a completely flat shape (all zeros)
-  const allZero = r.every((v) => v === 0);
-  if (allZero) return <div>Data unavailable for this selection.</div>;
+  // Optional: hide completely flat shape
+  if (r.every((v) => v === 0)) return <div>Data unavailable for this selection.</div>;
+
+  // 🔒 Close the loop
+  const rClosed = [...r, r[0]];
+  const thetaClosed = [...theta, theta[0]];
+  const hoverClosed = [...hoverText, hoverText[0]];
 
   return (
     <Plot
       data={[{
         type: 'scatterpolar',
-        r,
-        theta,
+        r: rClosed,
+        theta: thetaClosed,
         fill: 'toself',
-        text: hoverText,
+        text: hoverClosed,
         hoverinfo: 'text',
         name: playerName,
         line: { color: ACCENT },
         marker: { color: ACCENT },
-        fillcolor: 'rgba(124,58,237,0.25)', // translucent purple fill
+        fillcolor: 'rgba(124,58,237,0.25)',
       }]}
       layout={{
         title: `${playerName} Profile`,

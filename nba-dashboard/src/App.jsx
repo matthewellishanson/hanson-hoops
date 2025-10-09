@@ -2,13 +2,16 @@ import React, { useState } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import PlayerDashboard from './pages/PlayerDashboard';
 import TeamDashboard from './pages/TeamDashboard.jsx';
+import Landing from './pages/Landing';
 
 // Navigation component
 function Navigation() {
   const location = useLocation();
+  const isLanding = location.pathname === '/';
   
   return (
-    <nav className="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+    <main className='Landing'>
+    <nav className={`navbar navbar-expand-lg navbar-dark bg-primary ${isLanding ? 'mb-0' : 'mb-4'}`}>
       <div className="container">
         <Link className="navbar-brand" to="/">
           NBA Dashboard
@@ -29,6 +32,7 @@ function Navigation() {
         </div>
       </div>
     </nav>
+    </main>
   );
 }
 
@@ -100,7 +104,7 @@ export default function App() {
       <div className="min-vh-100 bg-light">
         <Navigation />
         <Routes>
-          <Route path="/" element={<PlayerDashboardWrapper />} />
+          <Route path="/" element={<Landing />} />
           <Route path="/players" element={<PlayerDashboardWrapper />} />
           <Route path="/teams" element={<TeamDashboard />} />
         </Routes>

@@ -3,6 +3,8 @@ import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
 import { api } from '../lib/api';
 
+const ACCENT = '#7c3aed';
+
 // Let react-plotly.js find Plotly on window
 if (typeof window !== 'undefined' && !window.Plotly) {
   window.Plotly = Plotly;
@@ -19,11 +21,9 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
       try {
         if (!teamId) return;
         const { data } = await api.get('/team_profile_stats', {
-          // Ask the backend to return percentile-scaled legs where supported
           params: { team_id: teamId, season, scale: 'percentile', opp_scale: 'percentile' },
         });
         if (!alive) return;
-        console.log('[TeamRadar] payload', data);
         setStats(data);
         setError(null);
       } catch (e) {
@@ -38,23 +38,19 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
   if (error) return <div>{error}</div>;
   if (!stats) return <div>Loading team chart…</div>;
 
-  // helpers
   const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v);
   const clamp01 = (v) => Math.max(0, Math.min(100, v ?? 0));
   const sanitize = (arr) => arr.map((v) => clamp01(isFiniteNumber(v) ? v : 0));
   const anyFinite = (arr) => arr.some(isFiniteNumber);
   const allZero = (arr) => arr.every((v) => v === 0);
 
-  // ------- TEAM view (normalized 0–100) -------
+  // TEAM mode (0–100)
   const teamTheta = ['Points', 'Rebounds', 'Assists', 'Blocks', 'Steals', 'FG%', '3P%', 'Turnovers (↓ better)'];
-
-  // Keep raw -> hover text separate from visual r
   const teamR_raw = [
     stats?.points, stats?.rebounds, stats?.assists,
     stats?.blocks, stats?.steals, stats?.fg_pct, stats?.fg3_pct, stats?.turnovers,
   ];
   const teamR = sanitize(teamR_raw);
-
   const teamHover = [
     `Points: ${stats?.raw_points ?? '—'} PPG`,
     `Rebounds: ${stats?.raw_rebounds ?? '—'} RPG`,
@@ -66,15 +62,13 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
     `Turnovers: ${stats?.raw_tov ?? '—'} TOPG`,
   ];
 
-  // ------- OPPONENT view (normalized 0–100) -------
+  // OPPONENT mode (0–100)
   const oppTheta = ['Opp Pts', 'Opp FG%', 'Opp 3P%', 'Opp AST', 'Opp REB', 'Opp FTM', 'Opp FT%'];
-
   const oppR_raw = [
     stats?.opp_points, stats?.opp_fg_pct, stats?.opp_fg3_pct,
     stats?.opp_ast, stats?.opp_reb, stats?.opp_ftm, stats?.opp_ft_pct,
   ];
   const oppR = sanitize(oppR_raw);
-
   const oppHover = [
     `Opp Points: ${stats?.raw_opp_points ?? '—'} PPG`,
     `Opp FG%: ${stats?.raw_opp_fg_pct ?? '—'}%`,
@@ -85,17 +79,13 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
     `Opp FT%: ${stats?.raw_opp_ft_pct ?? '—'}%`,
   ];
 
-  // Data availability: at least one finite value in the chosen mode
-  const hasTeamData = anyFinite(teamR_raw);
-  const hasOppData  = anyFinite(oppR_raw);
-  const r = mode === 'team' ? teamR : oppR;
-  const theta = mode === 'team' ? teamTheta : oppTheta;
-  const hover = mode === 'team' ? teamHover : oppHover;
-  const hasData = mode === 'team' ? hasTeamData : hasOppData;
+  // Choose mode arrays
+  const rBase = mode === 'team' ? teamR : oppR;
+  const thetaBase = mode === 'team' ? teamTheta : oppTheta;
+  const hoverBase = mode === 'team' ? teamHover : oppHover;
+  const hasData = mode === 'team' ? anyFinite(teamR_raw) : anyFinite(oppR_raw);
 
-  // Optional: hide completely flat shape (all zeros)
-  // Toggle this block on/off based on your UX preference.
-  if (!hasData || allZero(r)) {
+  if (!hasData || allZero(rBase)) {
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div className="btn-group" role="group" aria-label="mode">
@@ -119,17 +109,22 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
     );
   }
 
+  // 🔒 Close the loop
+  const rClosed = [...rBase, rBase[0]];
+  const thetaClosed = [...thetaBase, thetaBase[0]];
+  const hoverClosed = [...hoverBase, hoverBase[0]];
+
   const chartData = [{
     type: 'scatterpolar',
-    r,
-    theta,
+    r: rClosed,
+    theta: thetaClosed,
     fill: 'toself',
-    text: hover,
+    text: hoverClosed,
     hoverinfo: 'text',
     name: mode === 'team' ? `${teamName} (Team)` : `${teamName} (Opponent)`,
     line: { color: ACCENT },
     marker: { color: ACCENT },
-    fillcolor: 'rgba(124,58,237,0.25)'
+    fillcolor: 'rgba(124,58,237,0.25)',
   }];
 
   return (

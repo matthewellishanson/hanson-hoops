@@ -75,3 +75,152 @@ a:hover          { color: var(--primary-700); }
   color: var(--primary-contrast) !important;
   opacity: 0.9;
 }
+
+/* === App-wide primary token === */
+:root{
+  --app-primary: #7c3aed;         /* purple */
+  --app-primary-rgb: 124,58,237;
+}
+
+/* === Bootstrap 5 variable hooks (no-op on BS4, safe to keep) === */
+:root{
+  --bs-primary: var(--app-primary);
+  --bs-primary-rgb: var(--app-primary-rgb);
+  --bs-link-color: var(--app-primary);
+  --bs-link-hover-color: #5b21b6;
+}
+
+/* === Hard overrides that win against BS4/5 (both use !important) === */
+.bg-primary{ background-color: var(--app-primary) !important; }
+.text-primary{ color: var(--app-primary) !important; }
+.border-primary{ border-color: var(--app-primary) !important; }
+
+/* Buttons */
+.btn-primary{
+  background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+}
+.btn-primary:hover,
+.btn-primary:focus{
+  background-color: #6d28d9 !important;
+  border-color: #6d28d9 !important;
+}
+.btn-outline-primary{
+  color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+}
+.btn-outline-primary:hover,
+.btn-outline-primary:focus{
+  background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+  color: #fff !important;
+}
+
+/* Nav pills / tabs (if used) */
+.nav-pills .nav-link.active,
+.nav-pills .show > .nav-link{
+  background-color: var(--app-primary) !important;
+}
+
+/* Pagination (if used) */
+.pagination .active .page-link{
+  background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+}
+.page-link{
+  border-color: var(--app-primary) !important;
+}
+
+/* Force navbar background and text to our purple */
+.navbar.bg-primary {
+  background-color: var(--app-primary) !important;
+}
+
+.navbar.bg-primary .navbar-brand,
+.navbar.bg-primary .nav-link,
+.navbar.bg-primary .navbar-text {
+  color: #fff !important; /* ensure contrast */
+}
+
+/* Optional: adjust hover/focus for links in the navbar */
+.navbar.bg-primary .nav-link:hover,
+.navbar.bg-primary .nav-link:focus {
+  color: #ddd !important;
+}
+
+/* Landing hero */
+.hero-container {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #0f172a; /* page base behind overlay */
+  overflow: hidden;
+}
+
+/* 50% overlay in the same purple as navbar */
+.hero-overlay {
+  position: absolute; inset: 0;
+  background: color-mix(in oklab, var(--app-primary), transparent 50%);
+  /* If color-mix isn't supported, this fallback is fine: */
+  /* background: rgba(124, 58, 237, 0.5); */
+  z-index: 1;
+}
+
+/* top-right icon buttons */
+.hero-actions {
+  position: absolute; top: 14px; right: 14px;
+  z-index: 3; display: flex; gap: 10px;
+}
+.hero-icon-btn {
+  display: inline-grid; place-items: center;
+  width: 36px; height: 36px; border-radius: 10px;
+  background: rgba(255,255,255,0.15);
+  color: #fff; border: 1px solid rgba(255,255,255,0.2);
+  backdrop-filter: blur(3px);
+}
+.hero-icon-btn:hover { background: rgba(255,255,255,0.25); }
+
+/* main content */
+.hero-content {
+  position: relative; z-index: 2;
+  max-width: 960px; margin: 0 auto; padding: 24px;
+  text-align: center; color: #fff;
+}
+.hero-title {
+  margin: 0 0 12px;
+  font-size: clamp(28px, 5vw, 44px);
+  font-weight: 800;
+}
+.hero-sub {
+  margin: 0 auto 28px;
+  font-size: clamp(14px, 2vw, 18px);
+  line-height: 1.45;
+  max-width: 900px;
+  color: #f3e8ff;
+}
+
+/* CTA cards */
+.hero-cta {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  max-width: 520px; margin: 0 auto;
+}
+.cta-card {
+  display: grid; place-items: center;
+  padding: 18px 22px; border-radius: 14px;
+  background: #ffffff;
+  color: var(--app-primary); text-decoration: none; font-weight: 800;
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+}
+.cta-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.16);
+}
+
+/* mobile: stack CTAs */
+@media (max-width: 560px) {
+  .hero-cta { grid-template-columns: 1fr; }
+}
+
+.landing .mb-4 { margin-bottom: 0 !important; }
