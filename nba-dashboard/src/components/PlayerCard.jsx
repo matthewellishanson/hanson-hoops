@@ -3,6 +3,7 @@ import PlayerRadarChart from './PlayerRadarChart';
 import ShotMap from './ShotMap';
 import { api } from '../lib/api';
 import '../PlayerCard.css';
+import '../global.css';
 
 export default function PlayerCard({ playerId, playerName, season, onReplace, style }) {
   const [flipped, setFlipped] = useState(false);

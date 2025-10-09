@@ -17,3 +17,61 @@ select {
   font-size: 1rem;
   margin-right: 1rem;
 }
+
+/* ===== Theme: Primary Purple ===== */
+:root{
+  --primary-500: #7c3aed; /* core */
+  --primary-600: #6d28d9;
+  --primary-700: #5b21b6;
+  --primary-800: #4c1d95;
+  --primary-contrast: #ffffff;
+}
+
+/* Generic helpers */
+.text-primary    { color: var(--primary-600) !important; }
+.bg-primary      { background-color: var(--primary-600) !important; }
+.border-primary  { border-color: var(--primary-600) !important; }
+a, .link-primary { color: var(--primary-600); }
+a:hover          { color: var(--primary-700); }
+
+/* Buttons (Bootstrap-style classes you already use) */
+.btn-primary{
+  background-color: var(--primary-600);
+  border-color: var(--primary-600);
+  color: var(--primary-contrast);
+}
+.btn-primary:hover,
+.btn-primary:focus{
+  background-color: var(--primary-700);
+  border-color: var(--primary-700);
+  color: var(--primary-contrast);
+}
+
+.btn-outline-primary{
+  color: var(--primary-600);
+  border-color: var(--primary-600);
+  background: transparent;
+}
+.btn-outline-primary:hover,
+.btn-outline-primary:focus{
+  color: var(--primary-contrast);
+  background-color: var(--primary-600);
+  border-color: var(--primary-600);
+}
+
+/* Nav (if you have a top navbar) */
+.navbar,
+.top-nav { /* adjust selector to your nav wrapper if different */
+  background: var(--primary-600);
+  color: var(--primary-contrast);
+}
+.navbar .navbar-brand,
+.navbar .nav-link,
+.top-nav .nav-link{
+  color: var(--primary-contrast) !important;
+}
+.navbar .nav-link.active,
+.top-nav .nav-link.active{
+  color: var(--primary-contrast) !important;
+  opacity: 0.9;
+}

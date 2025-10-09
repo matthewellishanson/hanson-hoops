@@ -127,6 +127,9 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
     text: hover,
     hoverinfo: 'text',
     name: mode === 'team' ? `${teamName} (Team)` : `${teamName} (Opponent)`,
+    line: { color: ACCENT },
+    marker: { color: ACCENT },
+    fillcolor: 'rgba(124,58,237,0.25)'
   }];
 
   return (

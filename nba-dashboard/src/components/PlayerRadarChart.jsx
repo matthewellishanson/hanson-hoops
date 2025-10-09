@@ -3,6 +3,8 @@ import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
 import { api } from '../lib/api';
 
+const ACCENT = '#7c3aed';
+
 // Let react-plotly.js find Plotly on window
 if (typeof window !== 'undefined' && !window.Plotly) {
   window.Plotly = Plotly;
@@ -85,6 +87,9 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
         text: hoverText,
         hoverinfo: 'text',
         name: playerName,
+        line: { color: ACCENT },
+        marker: { color: ACCENT },
+        fillcolor: 'rgba(124,58,237,0.25)', // translucent purple fill
       }]}
       layout={{
         title: `${playerName} Profile`,

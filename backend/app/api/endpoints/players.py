@@ -13,6 +13,7 @@ from app.utils.seasons import format_season, current_nba_season
 from app.utils.normalize import normalize_stats
 from app.utils.percentiles import player_row_percentiles
 from app.utils.dates import _age_at_season_start, _season_start_date
+from app.utils.player_percentiles import player_stat_percentile
 from typing import List, Optional, Literal
 import pandas as pd
 from datetime import datetime, date
@@ -291,11 +292,11 @@ def get_player_profile_stats(
                 "scale": scale, "season": formatted_season
             }
 
-        # Per-game means for counting stats
+        # ---- Per-game means (counting stats) ----
         avgs = logs[['PTS','REB','AST','BLK','STL','TOV']].mean().fillna(0)
         tov_pg = float(avgs['TOV']) if 'TOV' in avgs else 0.0
 
-        # Totals for percentage-based
+        # ---- Totals -> season percentages ----
         fgm  = float(logs['FGM'].sum()) if 'FGM' in logs.columns else 0.0
         fga  = float(logs['FGA'].sum()) if 'FGA' in logs.columns else 0.0
         fg3m = float(logs['FG3M'].sum()) if 'FG3M' in logs.columns else 0.0
@@ -306,11 +307,11 @@ def get_player_profile_stats(
         fg_pct_season  = (fgm / fga * 100.0) if fga > 0 else 0.0
         fg3_pct_season = (fg3m / fg3a * 100.0) if fg3a > 0 else 0.0
         ft_pct_season  = (ftm / fta * 100.0) if fta > 0 else 0.0
-        ftr_ratio      = (fta / fga) if fga > 0 else 0.0   # free throw rate (FTA / FGA)
-        ftr_percent    = ftr_ratio * 100.0                 # display as %
+        ftr_ratio      = (fta / fga) if fga > 0 else 0.0   # FTA/FGA
+        ftr_percent    = ftr_ratio * 100.0                 # show as %
 
-        # --- Existing cap-based normalization (kept as fallback) ---
-        normalized_cap = normalize_stats({
+        # ---- Normalize the classic legs with your existing utility ----
+        normalized = normalize_stats({
             'PTS': avgs['PTS'],
             'REB': avgs['REB'],
             'AST': avgs['AST'],
@@ -318,57 +319,39 @@ def get_player_profile_stats(
             'STL': avgs['STL'],
             'FG_PCT':   fg_pct_season,   # already 0–100
             'FG3_PCT':  fg3_pct_season,  # already 0–100
-            'FT_PCT':   ft_pct_season,
-            'TOV':      tov_pg,          # will be inverted by normalize if supported
-            'FTR':      ftr_percent,     # accepts 0–100 or 0–1
+            'TOV':      tov_pg,          # your normalize may invert; if not, you can invert yourself
+            # (we'll supply FT legs separately so charts won’t flatten)
         }, kind="player")
 
-        # Fallbacks in case normalize.py doesn’t emit these keys
-        ft_rate_norm = float(normalized_cap.get('ft_rate', 0.0))
-        ft_pct_norm  = float(normalized_cap.get('ft_pct', 0.0))
-        tov_norm     = float(normalized_cap.get('turnovers', 0.0))
-
-        legs_cap = {
-            "points":   normalized_cap['points'],
-            "rebounds": normalized_cap['rebounds'],
-            "assists":  normalized_cap['assists'],
-            "blocks":   normalized_cap['blocks'],
-            "steals":   normalized_cap['steals'],
-            "fg_pct":   normalized_cap['fg_pct'],
-            "fg3_pct":  normalized_cap['fg3_pct'],
-            "turnovers":tov_norm,
-        }
-
-        # --- NEW: league-percentile legs (0–100) ---
-        # If the league table isn't available yet (first call) or fails, we’ll
-        # automatically fall back to cap scaling to keep charts rendering.
-        legs_used = "percentile"
-        pctl = {}
+        # ---- NEW: FT legs via league percentiles (fallback to caps) ----
         if scale == "percentile":
-            try:
-                pctl = player_row_percentiles(int(player_id), formatted_season)
-            except Exception as _:
-                pctl = {}
-
-        if scale == "percentile" and pctl:
-            legs = {
-                "points":   pctl.get("pts_pct", 0.0),
-                "rebounds": pctl.get("reb_pct", 0.0),
-                "assists":  pctl.get("ast_pct", 0.0),
-                "blocks":   pctl.get("blk_pct", 0.0),
-                "steals":   pctl.get("stl_pct", 0.0),
-                "fg_pct":   pctl.get("fg_pct_pct", 0.0),
-                "fg3_pct":  pctl.get("fg3_pct_pct", 0.0),
-                "turnovers":pctl.get("tov_pct", 0.0),
-            }
+            ft_pct_norm  = player_stat_percentile(formatted_season, "FT_PCT",  ft_pct_season)
+            ft_rate_norm = player_stat_percentile(formatted_season, "FTR_PCT", ftr_percent)
+            scale_used = "percentile"
         else:
-            legs = legs_cap
-            legs_used = "cap" if scale != "percentile" else "cap_fallback"
+            # cap mode: FT%: 50–90% -> 0–100; FTR%: 0–60% -> 0–100
+            v_ft  = max(50.0, min(90.0, ft_pct_season))
+            v_ftr = max(0.0, min(60.0, ftr_percent))
+            ft_pct_norm  = round(((v_ft - 50.0) / 40.0) * 100.0, 1)
+            ft_rate_norm = round((v_ftr / 60.0) * 100.0, 1)
+            scale_used = "cap"
+
+        # If your normalize() didn’t invert turnovers, you can do it here instead:
+        tov_norm = float(normalized.get('turnovers', 0.0))
 
         return {
-            **legs,
+            "points":   float(normalized['points']),
+            "rebounds": float(normalized['rebounds']),
+            "assists":  float(normalized['assists']),
+            "blocks":   float(normalized['blocks']),
+            "steals":   float(normalized['steals']),
+            "fg_pct":   float(normalized['fg_pct']),
+            "fg3_pct":  float(normalized['fg3_pct']),
+            "ft_rate":  float(ft_rate_norm),    # ✅ fixed
+            "ft_pct":   float(ft_pct_norm),     # ✅ fixed
+            "turnovers": float(tov_norm),
 
-            # keep raw_* for tooltips
+            # raw hover values
             "raw_points": round(float(avgs['PTS']), 1),
             "raw_rebounds": round(float(avgs['REB']), 1),
             "raw_assists": round(float(avgs['AST']), 1),
@@ -376,13 +359,12 @@ def get_player_profile_stats(
             "raw_steals": round(float(avgs['STL']), 1),
             "raw_fg_pct": round(fg_pct_season, 1),
             "raw_fg3_pct": round(fg3_pct_season, 1),
-            "raw_ft_rate": round(ftr_percent, 1),  # %
+            "raw_ft_rate": round(ftr_percent, 1),
             "raw_ft_pct":  round(ft_pct_season, 1),
             "raw_tov":     round(tov_pg, 1),
 
-            # extras (handy for debugging / UI toggle badges)
             "scale": scale,
-            "scale_used": legs_used,
+            "scale_used": scale_used,
             "season": formatted_season,
         }
 
@@ -393,8 +375,9 @@ def get_player_profile_stats(
             "ft_rate":0,"ft_pct":0,"turnovers":0,
             "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,
             "raw_fg_pct":0,"raw_fg3_pct":0,"raw_ft_rate":0,"raw_ft_pct":0,"raw_tov":0,
-            "scale": scale, "scale_used": "error", "season": (format_season(season) if season else None)
+            "scale": scale, "scale_used": "error", "season": formatted_season
         }
+
 
 
 
