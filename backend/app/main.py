@@ -3,14 +3,13 @@ import os
 import json
 import requests
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
+from app.utils.http import with_cache_headers
 from app.utils.seasons import current_nba_season, format_season
 from app.api.endpoints.teams import _league_shots_for_season
 
@@ -183,14 +182,6 @@ def _patch_nba_api():
         print("[startup] failed to wrap __init__:", e)
 
 _patch_nba_api()
-
-# -----------------------------
-# Small helper
-# -----------------------------
-def with_cache_headers(data: dict, seconds: int = 900) -> Response:
-    resp = Response(content=json.dumps(data), media_type="application/json")
-    resp.headers["Cache-Control"] = f"public, max-age={seconds}"
-    return resp
 
 # -----------------------------
 # Routers
