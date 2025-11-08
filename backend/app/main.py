@@ -134,7 +134,17 @@ def _build_retrying_session() -> requests.Session:
     s.mount("https://", adapter)
     s.mount("http://", adapter)
     s.headers.update(DEFAULT_HEADERS)
-    return s  # requests will honor *_PROXY envs automatically
+
+    _proxy = os.getenv("PROXY_URL") or os.getenv("NBA_STATS_PROXY")
+    if _proxy:
+        s.proxies.update({
+            "http": _proxy,
+            "https": _proxy,
+        })
+        print(f"[requests] using inline proxy -> {_proxy}")
+
+    return s
+
 
 def _patch_nba_api():
     if NBAStatsHTTP is None:
