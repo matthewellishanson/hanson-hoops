@@ -1,5 +1,27 @@
 # backend/app/main.py
 import os
+
+# -----------------------------
+# Optional proxy for nba_api
+# -----------------------------
+_PROXY = os.getenv("PROXY_URL") or os.getenv("NBA_STATS_PROXY")
+if _PROXY:
+    os.environ["HTTP_PROXY"]  = _PROXY
+    os.environ["HTTPS_PROXY"] = _PROXY
+    os.environ["http_proxy"]  = _PROXY
+    os.environ["https_proxy"] = _PROXY
+    os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
+    print(f"[startup] proxy enabled via PROXY_URL={_PROXY}")
+
+# Optional: only for folks running behind a runtime proxy on the host
+_runtime_proxy = os.environ.get("NBA_RUNTIME_PROXY")
+if _runtime_proxy:
+    os.environ["HTTP_PROXY"]  = _runtime_proxy
+    os.environ["HTTPS_PROXY"] = _runtime_proxy
+    os.environ["http_proxy"]  = _runtime_proxy
+    os.environ["https_proxy"] = _runtime_proxy
+    os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
+
 import json
 import requests
 from contextlib import asynccontextmanager
@@ -12,15 +34,6 @@ from urllib3.util.retry import Retry
 from app.utils.http import with_cache_headers
 from app.utils.seasons import current_nba_season, format_season
 from app.api.endpoints.teams import _league_shots_for_season
-
-# Optional: only for folks running behind a runtime proxy on the host
-_runtime_proxy = os.environ.get("NBA_RUNTIME_PROXY")
-if _runtime_proxy:
-    os.environ["HTTP_PROXY"]  = _runtime_proxy
-    os.environ["HTTPS_PROXY"] = _runtime_proxy
-    os.environ["http_proxy"]  = _runtime_proxy
-    os.environ["https_proxy"] = _runtime_proxy
-    os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
 
 # -----------------------------
 # Lifespan (startup/shutdown)
@@ -78,17 +91,7 @@ app.add_middleware(
 def health():
     return {"ok": True}
 
-# -----------------------------
-# Optional proxy for nba_api
-# -----------------------------
-_PROXY = os.getenv("PROXY_URL") or os.getenv("NBA_STATS_PROXY")
-if _PROXY:
-    os.environ["HTTP_PROXY"]  = _PROXY
-    os.environ["HTTPS_PROXY"] = _PROXY
-    os.environ["http_proxy"]  = _PROXY
-    os.environ["https_proxy"] = _PROXY
-    os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,.onrender.com")
-    print(f"[startup] proxy enabled via PROXY_URL={_PROXY}")
+
 
 # -----------------------------
 # nba_api reliability patch
