@@ -1,7 +1,7 @@
 # backend/app/api/endpoints/players.py
 from fastapi import APIRouter, Query, HTTPException
 from functools import lru_cache
-from nba_api.stats.endpoints import playergamelog, shotchartdetail, commonplayerinfo
+from nba_api.stats.endpoints import playergamelog, shotchartdetail, commonplayerinfo, commonallplayers
 from nba_api.stats.static import players as static_players
 from app.models.schemas import (
       PlayerProfileStats,
@@ -27,18 +27,40 @@ router = APIRouter()
 # Caching player data
 @lru_cache(maxsize=1)
 def _all_players_norm():
-    # ~5k records; cache in memory
-    rows = static_players.get_players()
-    return [
-        {
-            "id": str(r["id"]),
-            "name": r["full_name"],
-            "first": r.get("first_name") or "",
-            "last": r.get("last_name") or "",
-            "is_active": bool(r.get("is_active")),
-        }
-        for r in rows
-    ]
+    try:
+        season = current_nba_season()
+        season_fmt = format_season(season)
+        print(f"[players] refreshing from commonallplayers for {season_fmt}")
+
+        df = commonallplayers.CommonAllPlayers(
+            is_only_current_season=0,   # set to 1 if you only want active players
+            season=season_fmt
+        ).get_data_frames()[0]
+
+        return [
+            {
+                "id": str(r["PERSON_ID"]),
+                "name": r["DISPLAY_FIRST_LAST"],
+                "first": r.get("FIRST_NAME", ""),
+                "last": r.get("LAST_NAME", ""),
+                "is_active": bool(r.get("ROSTERSTATUS")),
+            }
+            for _, r in df.iterrows()
+        ]
+
+    except Exception as e:
+        print(f"[players] fallback to static list due to error: {e}")
+        rows = static_players.get_players()
+        return [
+            {
+                "id": str(r["id"]),
+                "name": r["full_name"],
+                "first": r.get("first_name") or "",
+                "last": r.get("last_name") or "",
+                "is_active": bool(r.get("is_active")),
+            }
+            for r in rows
+        ]
 
 @router.get("/players")
 def list_players(
