@@ -34,6 +34,7 @@ from urllib3.util.retry import Retry
 from app.utils.http import with_cache_headers
 from app.utils.seasons import current_nba_season, format_season
 from app.api.endpoints.teams import _league_shots_for_season
+from app.api.endpoints import rookies
 
 # -----------------------------
 # Lifespan (startup/shutdown)
@@ -203,3 +204,4 @@ from app.api.endpoints.players import router as players_router
 from app.api.endpoints.teams import router as teams_router
 app.include_router(players_router)
 app.include_router(teams_router)
+app.include_router(rookies.router)
