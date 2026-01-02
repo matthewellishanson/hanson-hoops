@@ -9,42 +9,38 @@ OUT_PATH = Path(
 
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+print("Loading rookie snapshot...")
 df = pd.read_csv("app/cache/rookie_snapshot.csv")
 
-# bucket heights (optional)
+# Use raw height
 df["height_bucket"] = df["height_in"]
 
-long_rows = []
+rows = []
 
 for (season, height, pos), g in df.groupby(["rookie_season", "height_bucket", "position"]):
-    long_rows.append({
+    rows.append({
         "season": season,
         "height": height,
         "position": pos,
         "stat": "minutes",
         "value": g["minutes"].sum()
     })
-    long_rows.append({
-        "season": season,
-        "height": height,
-        "position": pos,
-        "stat": "usage",
-        "value": g["usg_pct"].mean()
-    })
-    long_rows.append({
+    rows.append({
         "season": season,
         "height": height,
         "position": pos,
         "stat": "count",
         "value": g.shape[0]
     })
-    long_rows.append({
+    rows.append({
         "season": season,
         "height": height,
         "position": pos,
         "stat": "avg_pick",
-        "value": g["draft_year"].mean()
+        "value": g["draft_number"].mean()
     })
 
-out = pd.DataFrame(long_rows)
+out = pd.DataFrame(rows)
 out.to_csv(OUT_PATH, index=False)
+
+print(f"Saved → {OUT_PATH}")
