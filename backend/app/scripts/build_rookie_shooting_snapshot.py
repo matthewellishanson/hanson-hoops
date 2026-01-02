@@ -1,63 +1,59 @@
 import pandas as pd
 from pathlib import Path
 
-INPUT = Path("app/cache/rookie_snapshot.csv")
-OUTPUT = Path("C:/Users/mehan/Documents/matthewellishanson.github.io/hanson-hoops/rookies/data/rookie_shooting_stream.csv")
+OUT = Path("docs/data/rookie_shooting_stream.csv")
 
-OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-
-print("Loading rookie snapshot...")
-df = pd.read_csv(INPUT)
+df = pd.read_csv("app/cache/rookie_snapshot.csv")
 
 # Ensure numeric
-for col in ["fga","fgm","fg3a","fg3m","fta","ftm"]:
-    df[col] = pd.to_numeric(df[col], errors="coerce")
+for c in ["games","fga","fgm","fg3a","fg3m","fta","ftm"]:
+    df[c] = pd.to_numeric(df[c], errors="coerce")
 
-rows = []
+df = df[df["games"] > 0].copy()
 
-for (season, pos), g in df.groupby(["rookie_season", "position"]):
-    for shot_type in ["fg", "3p", "ft"]:
-        if shot_type == "fg":
-            att = g["fga"]
-            made = g["fgm"]
-        elif shot_type == "3p":
-            att = g["fg3a"]
-            made = g["fg3m"]
-        else:
-            att = g["fta"]
-            made = g["ftm"]
+# Per-game at player level
+df["fg_att_pg"]  = df["fga"]  / df["games"]
+df["fg_mk_pg"]   = df["fgm"]  / df["games"]
+df["fg_pct"]     = df["fg_pct"]
 
-        # Drop players with zero attempts to avoid distortion
-        valid = g[att > 0]
+df["fg3_att_pg"] = df["fg3a"] / df["games"]
+df["fg3_mk_pg"]  = df["fg3m"] / df["games"]
+df["fg3_pct"]    = df["fg3_pct"]
 
-        if len(valid) == 0:
-            continue
+df["ft_att_pg"]  = df["fta"]  / df["games"]
+df["ft_mk_pg"]   = df["ftm"]  / df["games"]
+df["ft_pct"]     = df["ft_pct"]
 
-        rows.append({
-            "season": season,
-            "position_group": pos,
-            "shot_type": shot_type,
-            "metric": "attempts",
-            "value": valid[att.name].mean()
-        })
-        rows.append({
-            "season": season,
-            "position_group": pos,
-            "shot_type": shot_type,
-            "metric": "makes",
-            "value": valid[made.name].mean()
-        })
-        rows.append({
-            "season": season,
-            "position_group": pos,
-            "shot_type": shot_type,
-            "metric": "pct",
-            "value": (valid[made.name].sum() / valid[att.name].sum()) if valid[att.name].sum() > 0 else None
-        })
+records = []
 
-out = pd.DataFrame(rows)
-out = out.sort_values(["season","position_group","shot_type","metric"])
+def build(df, shot, att, mk, pct):
+    g = df.groupby(["rookie_season","position"])
+    out = g[[att,mk,pct]].mean().reset_index()
 
-print(f"Saving → {OUTPUT}")
-out.to_csv(OUTPUT, index=False)
-print("Done.")
+    out = out.rename(columns={
+        "rookie_season":"season",
+        "position":"position_group",
+        att:"attempts",
+        mk:"makes",
+        pct:"pct"
+    })
+
+    out = out.melt(
+        id_vars=["season","position_group"],
+        value_vars=["attempts","makes","pct"],
+        var_name="metric",
+        value_name="value"
+    )
+
+    out["shot_type"] = shot
+    return out
+
+records.append(build(df,"fg","fg_att_pg","fg_mk_pg","fg_pct"))
+records.append(build(df,"3p","fg3_att_pg","fg3_mk_pg","fg3_pct"))
+records.append(build(df,"ft","ft_att_pg","ft_mk_pg","ft_pct"))
+
+final = pd.concat(records, ignore_index=True)
+final = final.sort_values(["shot_type","position_group","season","metric"])
+
+final.to_csv(OUT, index=False)
+print("Saved →", OUT)
