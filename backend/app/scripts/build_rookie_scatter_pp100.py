@@ -3,7 +3,7 @@ from pathlib import Path
 
 OUT = Path("docs/data/rookie_scatter_pp100.csv")
 
-df = pd.read_csv("app/cache/rookie_snapshot.csv")
+df = pd.read_csv("docs/data/rookie_snapshot.csv")
 
 # numeric safety
 for c in ["games","minutes","fga","fta","tov","pts","usg_pct"]:
