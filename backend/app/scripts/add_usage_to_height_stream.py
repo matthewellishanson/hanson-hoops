@@ -1,42 +1,47 @@
 import pandas as pd
 from pathlib import Path
 
-STREAM_PATH = Path("C:/Users/mehan/Documents/matthewellishanson.github.io/hanson-hoops/rookies/data/rookie_height_stream_wide.csv")
-SNAPSHOT_PATH = Path("app/cache/rookie_snapshot.csv")
-OUT_PATH = Path("C:/Users/mehan/Documents/matthewellishanson.github.io/hanson-hoops/rookies/data/rookie_height_stream_wide.csv")
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+STREAM_PATH = BACKEND_DIR / "docs" / "data" / "rookie_height_stream_wide.csv"
+SNAPSHOT_PATH = BACKEND_DIR / "app" / "cache" / "rookie_snapshot.csv"
+OUT_PATH = STREAM_PATH
 
-print("Loading stream...")
-stream = pd.read_csv(STREAM_PATH)
+def add_usage_to_height_stream(stream_path: Path = STREAM_PATH, snapshot_path: Path = SNAPSHOT_PATH, out_path: Path = OUT_PATH) -> pd.DataFrame:
+    print(f"Loading wide height stream from {stream_path}")
+    stream = pd.read_csv(stream_path)
 
-print("Loading rookie_snapshot...")
-snap = pd.read_csv(SNAPSHOT_PATH)
+    print(f"Loading rookie snapshot from {snapshot_path}")
+    snap = pd.read_csv(snapshot_path)
 
-# Normalize column names
-snap = snap.rename(columns={
-    "rookie_season": "season",
-    "height_in": "height_in",
-    "position": "position_group",
-    "usg_pct": "usage"
-})
+    snap = snap.rename(
+        columns={
+            "rookie_season": "season",
+            "height_in": "height_in",
+            "position": "position_group",
+            "usg_pct": "usage",
+        }
+    )
 
-# Drop missing usage
-snap = snap.dropna(subset=["usage"])
+    snap = snap.dropna(subset=["usage"])
 
-# Aggregate usage by group
-usage_by_group = (
-    snap.groupby(["season", "height_in", "position_group"])["usage"]
-    .mean()
-    .reset_index()
-)
+    usage_by_group = (
+        snap.groupby(["season", "height_in", "position_group"])["usage"]
+        .mean()
+        .reset_index()
+    )
 
-print("Merging usage...")
-merged = stream.merge(
-    usage_by_group,
-    on=["season", "height_in", "position_group"],
-    how="left"
-)
+    print("Merging usage onto height stream...")
+    merged = stream.merge(
+        usage_by_group,
+        on=["season", "height_in", "position_group"],
+        how="left",
+    )
 
-print("Saving...")
-merged.to_csv(OUT_PATH, index=False)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(out_path, index=False)
+    print(f"Saved usage-enriched height stream to {out_path}")
+    return merged
 
-print("Done.")
+
+if __name__ == "__main__":
+    add_usage_to_height_stream()
