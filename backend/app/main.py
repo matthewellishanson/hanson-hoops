@@ -77,6 +77,12 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 ALLOWED_ORIGINS = list(filter(None, [
     os.getenv("FRONTEND_ORIGIN"),             # set in Render for prod
     "http://localhost:5173",                  # Vite dev
+    # Extra local dev origins (different host aliases/ports used by Vite preview/dev).
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
     "http://localhost:3000",
     "https://matthewellishanson.github.io",   # GH Pages parent
 ]))
@@ -202,6 +208,9 @@ _patch_nba_api()
 # -----------------------------
 from app.api.endpoints.players import router as players_router
 from app.api.endpoints.teams import router as teams_router
+from app.api.endpoints.fit import router as fit_router
 app.include_router(players_router)
 app.include_router(teams_router)
+# Projected pair-fit API routes.
+app.include_router(fit_router)
 app.include_router(rookies.router)

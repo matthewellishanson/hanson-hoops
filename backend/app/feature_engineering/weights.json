@@ -1,0 +1,48 @@
+{
+  "version": "fit-v1.0.0",
+  "coverage": {
+    "coverage_creation": 0.18,
+    "coverage_spacing": 0.17,
+    "coverage_rim": 0.07,
+    "coverage_rebounding": 0.08,
+    "coverage_disruption": 0.10
+  },
+  "synergy": {
+    "synergy_creator_spacer": 0.20,
+    "synergy_creator_finisher": 0.10,
+    "synergy_poa_rim": 0.06,
+    "synergy_rebounder_spacer": 0.04
+  },
+  "clash": {
+    "clash_usage_overlap": 0.17,
+    "clash_double_non_spacer": 0.20,
+    "clash_turnover_overload": 0.14
+  },
+  "category_components": {
+    "offense": [
+      "coverage_creation",
+      "coverage_spacing",
+      "synergy_creator_spacer",
+      "synergy_creator_finisher",
+      "clash_usage_overlap",
+      "clash_double_non_spacer",
+      "clash_turnover_overload"
+    ],
+    "defense": [
+      "coverage_rim",
+      "coverage_disruption",
+      "synergy_poa_rim"
+    ],
+    "spacers": [
+      "coverage_spacing",
+      "synergy_creator_spacer",
+      "synergy_rebounder_spacer",
+      "clash_double_non_spacer"
+    ],
+    "rebounding": [
+      "coverage_rebounding",
+      "synergy_rebounder_spacer"
+    ]
+  }
+}
+

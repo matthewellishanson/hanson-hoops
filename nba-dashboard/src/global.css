@@ -224,3 +224,38 @@ a:hover          { color: var(--primary-700); }
 }
 
 .landing .mb-4 { margin-bottom: 0 !important; }
+
+/* Player Fit panel theme accents */
+.fit-panel .progress-bar {
+  background-color: #7c3aed !important;
+}
+
+.fit-panel .form-range:focus {
+  outline: 0;
+}
+
+.fit-panel .form-range::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, rgba(124, 58, 237, 0.35), rgba(124, 58, 237, 0.35));
+  border-radius: 999px;
+}
+
+.fit-panel .form-range::-webkit-slider-thumb {
+  background-color: #7c3aed;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.45);
+}
+
+.fit-panel .form-range:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.25);
+}
+
+.fit-panel .form-range::-moz-range-track {
+  background: rgba(124, 58, 237, 0.35);
+  border-radius: 999px;
+}
+
+.fit-panel .form-range::-moz-range-thumb {
+  background-color: #7c3aed;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.45);
+}

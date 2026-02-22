@@ -110,13 +110,19 @@ def _height_to_cm_str(height_str: str | None) -> str | None:
     except Exception:
         return None
 
-def _fetch_player_bio(player_id: str, retries: int = 5, backoff: float = 1.5) -> dict | None:
+def _fetch_player_bio_uncached(
+    player_id: str,
+    retries: int = 2,
+    backoff: float = 0.6,
+    request_timeout: int = 15,
+) -> dict | None:
+    # Fast-fail upstream fetch: lower retries/timeouts reduce frontend stalls.
     last_err = None
     for attempt in range(1, retries + 1):
         try:
             info = commonplayerinfo.CommonPlayerInfo(
                 player_id=int(player_id),
-                timeout=60,  # <— per-call timeout, in addition to the global one
+                timeout=request_timeout,
             ).get_data_frames()
 
             if not info or len(info) == 0 or info[0].empty:
@@ -160,6 +166,12 @@ def _fetch_player_bio(player_id: str, retries: int = 5, backoff: float = 1.5) ->
     print(f"[player_bio] giving up for player_id={player_id}: {repr(last_err)}")
     traceback.print_exc()
     return None
+
+
+@lru_cache(maxsize=512)
+def _fetch_player_bio(player_id: str) -> dict | None:
+    # Cache successful bio payloads so the same player card resolves instantly.
+    return _fetch_player_bio_uncached(player_id=player_id)
 
 
 @router.get("/player_bio")

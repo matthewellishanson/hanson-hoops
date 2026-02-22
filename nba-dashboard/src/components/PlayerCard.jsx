@@ -38,15 +38,21 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
   // Fetch bio when playerId changes
   useEffect(() => {
     let alive = true;
+    // Abort stale requests if player/season changes before response returns.
+    const controller = new AbortController();
     (async () => {
       try {
         if (!playerId) return;
         const { data } = await api.get('/player_bio', {
-          params: { player_id: playerId, season }
+          params: { player_id: playerId, season },
+          // Keep this lower than the fit call so card chrome degrades gracefully.
+          timeout: 25000,
+          signal: controller.signal,
         });
         if (alive) setBio(data);
       } catch (e) {
-        console.error('Error fetching bio:', e);
+        if (e?.code === 'ERR_CANCELED') return;
+        console.error('Error fetching bio:', e?.message || e);
         if (alive) setBio(null);
       }
     })();
@@ -54,7 +60,7 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
     setFlipped(false);
     setBackMounted(false);
     const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
-    return () => { alive = false; clearTimeout(t); };
+    return () => { alive = false; controller.abort(); clearTimeout(t); };
   }, [playerId, season]);
 
   return (
