@@ -4,6 +4,7 @@ import pandas as pd
 import inspect
 
 from nba_api.stats.endpoints import leaguedashplayerstats, leaguedashteamstats
+from app.services.nba_http import nba_call, request_timeout_seconds
 
 # -------- helpers --------
 
@@ -39,8 +40,13 @@ def league_players_table(season_fmt: str) -> pd.DataFrame:
         base_kwargs["league_id_nullable"] = "00"
     elif "league_id" in params:
         base_kwargs["league_id"] = "00"
+    if "timeout" in params:
+        base_kwargs["timeout"] = request_timeout_seconds()
 
-    df = leaguedashplayerstats.LeagueDashPlayerStats(**base_kwargs).get_data_frames()[0]
+    df = nba_call(
+        "percentiles_league_players",
+        lambda: leaguedashplayerstats.LeagueDashPlayerStats(**base_kwargs).get_data_frames()[0],
+    )
     # Defensive: ensure the columns we care about exist
     return df
 
@@ -119,8 +125,13 @@ def league_teams_table(season_fmt: str, measure: str = "Base") -> pd.DataFrame:
         base_kwargs["league_id_nullable"] = "00"
     elif "league_id" in params:
         base_kwargs["league_id"] = "00"
+    if "timeout" in params:
+        base_kwargs["timeout"] = request_timeout_seconds()
 
-    df = leaguedashteamstats.LeagueDashTeamStats(**base_kwargs).get_data_frames()[0]
+    df = nba_call(
+        f"percentiles_league_teams:{measure}",
+        lambda: leaguedashteamstats.LeagueDashTeamStats(**base_kwargs).get_data_frames()[0],
+    )
     return df
 
 @lru_cache(maxsize=16)

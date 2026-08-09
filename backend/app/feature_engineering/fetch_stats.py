@@ -8,6 +8,9 @@ from pathlib import Path
 import pandas as pd
 from nba_api.stats.endpoints import leaguedashplayerstats
 
+from app.services.nba_http import nba_call, request_timeout_seconds
+from app.services.snapshots import load_fit_pool, save_runtime_fit_pool
+
 try:
     from nba_api.stats.endpoints import leaguedashplayerbiostats
 except Exception:  # pragma: no cover - endpoint availability varies
@@ -61,7 +64,13 @@ def _ldps_df(season_fmt: str, measure: str, per_mode: str) -> pd.DataFrame:
     elif "league_id" in params:
         kwargs["league_id"] = "00"
 
-    frames = leaguedashplayerstats.LeagueDashPlayerStats(**kwargs).get_data_frames()
+    if "timeout" in params:
+        kwargs["timeout"] = request_timeout_seconds()
+
+    frames = nba_call(
+        f"league_dash_player_stats:{measure}:{per_mode}",
+        lambda: leaguedashplayerstats.LeagueDashPlayerStats(**kwargs).get_data_frames(),
+    )
     return frames[0] if frames and len(frames) > 0 else pd.DataFrame()
 
 
@@ -85,9 +94,14 @@ def _bio_df(season_fmt: str) -> pd.DataFrame:
         kwargs["league_id_nullable"] = "00"
     elif "league_id" in params:
         kwargs["league_id"] = "00"
+    if "timeout" in params:
+        kwargs["timeout"] = request_timeout_seconds()
 
     try:
-        frames = leaguedashplayerbiostats.LeagueDashPlayerBioStats(**kwargs).get_data_frames()
+        frames = nba_call(
+            "league_dash_player_bio_stats",
+            lambda: leaguedashplayerbiostats.LeagueDashPlayerBioStats(**kwargs).get_data_frames(),
+        )
         return frames[0] if frames and len(frames) > 0 else pd.DataFrame()
     except Exception:
         return pd.DataFrame()
@@ -95,7 +109,7 @@ def _bio_df(season_fmt: str) -> pd.DataFrame:
 
 def _height_cache_df() -> pd.DataFrame:
     # Local cache fallback for player height when bio endpoint is unavailable/disabled.
-    p = Path("app/cache/player_heights.csv")
+    p = Path(__file__).resolve().parents[1] / "cache" / "player_heights.csv"
     if not p.exists():
         return pd.DataFrame()
     try:
@@ -114,6 +128,23 @@ def _height_cache_df() -> pd.DataFrame:
 def player_pool(season_fmt: str, min_minutes: int = 300) -> pd.DataFrame:
     # Build the player feature base table used by the fit model.
     # We mix totals + per100 + advanced tables, then filter by minutes.
+    model_version = "fit-v1.0.0"
+    snapshot, snapshot_source = (None, None)
+    if os.getenv("NBA_FORCE_LIVE_REFRESH", "0") != "1":
+        snapshot, snapshot_source = load_fit_pool(season_fmt, model_version)
+    required_snapshot_columns = {
+        "PLAYER_ID", "PLAYER_NAME", "TEAM_ABBREVIATION", "GP", "MIN",
+        "height_in", "weight_lbs", "USG_PCT", "AST_PCT", "TOV_PCT",
+        "PTS_PER100", "FGA_PER100", "FTAR", "FG3A_PER100", "FG3_PCT",
+        "TS_PCT", "EFG_PCT", "STL_PER100", "BLK_PER100", "ORB_PCT",
+        "DRB_PCT", "PF_PER100",
+    }
+    if snapshot is not None and required_snapshot_columns.issubset(snapshot.columns):
+        snapshot["MIN"] = _to_numeric(snapshot.get("MIN", pd.Series(dtype="float64")))
+        result = snapshot[snapshot["MIN"] >= float(min_minutes)].copy().reset_index(drop=True)
+        result.attrs["data_source"] = snapshot_source
+        return result
+
     base_totals = _ldps_df(season_fmt, measure="Base", per_mode="Totals")
     base_p100 = _ldps_df(season_fmt, measure="Base", per_mode="Per100Possessions")
     advanced = _ldps_df(season_fmt, measure="Advanced", per_mode="Per100Possessions")
@@ -183,8 +214,6 @@ def player_pool(season_fmt: str, min_minutes: int = 300) -> pd.DataFrame:
     out["FTAR"] = (out["FTA_TOTAL"] / out["FGA_TOTAL"].replace(0, pd.NA)).fillna(0.0)
     out["MIN"] = _to_numeric(out["MIN"])
     out["GP"] = _to_numeric(out["GP"])
-    out = out[out["MIN"] >= float(min_minutes)].copy()
-
     bio = _bio_df(season_fmt)
     if not bio.empty and "PLAYER_ID" in bio.columns:
         body = pd.DataFrame()
@@ -208,8 +237,10 @@ def player_pool(season_fmt: str, min_minutes: int = 300) -> pd.DataFrame:
 
     out["height_in"] = _to_numeric(out["height_in"], default=float("nan"))
     out["weight_lbs"] = _to_numeric(out["weight_lbs"], default=float("nan"))
-    out["height_in"] = out["height_in"].fillna(out["height_in"].median())
-    out["weight_lbs"] = out["weight_lbs"].fillna(out["weight_lbs"].median())
+    height_median = out["height_in"].median()
+    weight_median = out["weight_lbs"].median()
+    out["height_in"] = out["height_in"].fillna(height_median if pd.notna(height_median) else 78.0)
+    out["weight_lbs"] = out["weight_lbs"].fillna(weight_median if pd.notna(weight_median) else 215.0)
 
     keep_cols = [
         "PLAYER_ID",
@@ -237,4 +268,8 @@ def player_pool(season_fmt: str, min_minutes: int = 300) -> pd.DataFrame:
     ]
     out = out[keep_cols].copy()
     out["PLAYER_ID"] = out["PLAYER_ID"].astype(int)
-    return out.reset_index(drop=True)
+    out = out.reset_index(drop=True)
+    save_runtime_fit_pool(season_fmt, model_version, out)
+    result = out[out["MIN"] >= float(min_minutes)].copy().reset_index(drop=True)
+    result.attrs["data_source"] = "live"
+    return result

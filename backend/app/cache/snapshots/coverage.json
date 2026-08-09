@@ -1,0 +1,663 @@
+{
+  "version": "comparison-coverage-v1",
+  "generated_at": "2026-08-08",
+  "seasons": [
+    {
+      "season": "2025-26",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": true,
+      "complete": true
+    },
+    {
+      "season": "2024-25",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2023-24",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": true,
+      "complete": true
+    },
+    {
+      "season": "2022-23",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2021-22",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2020-21",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2019-20",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2018-19",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2017-18",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2016-17",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2015-16",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2014-15",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2013-14",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2012-13",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2011-12",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2010-11",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2009-10",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2008-09",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2007-08",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2006-07",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2005-06",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2004-05",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2003-04",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2002-03",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2001-02",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "2000-01",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1999-00",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1998-99",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1997-98",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1996-97",
+      "profiles": true,
+      "fit": true,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1995-96",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1994-95",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1993-94",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1992-93",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1991-92",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1990-91",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1989-90",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1988-89",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1987-88",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1986-87",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1985-86",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1984-85",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1983-84",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1982-83",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1981-82",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1980-81",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1979-80",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1978-79",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1977-78",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1976-77",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1975-76",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1974-75",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1973-74",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1972-73",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1971-72",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1970-71",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1969-70",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1968-69",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1967-68",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1966-67",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1965-66",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1964-65",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1963-64",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1962-63",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1961-62",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1960-61",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1959-60",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1958-59",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1957-58",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1956-57",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1955-56",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1954-55",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1953-54",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1952-53",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1951-52",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1950-51",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1949-50",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1948-49",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1947-48",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    },
+    {
+      "season": "1946-47",
+      "profiles": true,
+      "fit": false,
+      "teams": true,
+      "shots": false,
+      "complete": true
+    }
+  ],
+  "sources": {
+    "broad_history": {
+      "dataset": "eoinamoore/historical-nba-data-and-player-box-scores",
+      "version": 515,
+      "license": "CC0-1.0",
+      "source": "NBA.com",
+      "input": {
+        "filename": "PlayerStatistics.csv",
+        "sha256": "8e5a33676661c3612bf87f185abb745254b09ab66cfee5aeccb5ae13d538c652"
+      }
+    },
+    "shots": {
+      "repository": "shufinskiy/nba_data",
+      "revision": "e829d4678be1e075f99e5d41a1c5f97089be446b",
+      "license": "Apache-2.0"
+    }
+  }
+}

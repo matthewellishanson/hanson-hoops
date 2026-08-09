@@ -195,3 +195,8 @@
   color: #fff;
   top: 8px; right: 8px;
 }
+
+.pcard-meta-error {
+  color: #6b7280;
+  white-space: nowrap;
+}

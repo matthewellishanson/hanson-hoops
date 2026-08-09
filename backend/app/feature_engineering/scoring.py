@@ -8,7 +8,7 @@ from pathlib import Path
 @lru_cache(maxsize=2)
 def load_weights() -> dict:
     # Weight config is externalized so tuning does not require code edits.
-    p = Path("app/feature_engineering/weights.json")
+    p = Path(__file__).resolve().with_name("weights.json")
     return json.loads(p.read_text(encoding="utf-8"))
 
 

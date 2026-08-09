@@ -1,0 +1,86 @@
+{
+  "version": "player-snapshot-v1",
+  "source": "NBA player metadata and 2023-24 Basketball Reference season tables",
+  "players": {
+    "2544": {
+      "generated_at": "2026-08-08",
+      "bio": {
+        "player_id": "2544",
+        "name": "LeBron James",
+        "team": "Los Angeles Lakers",
+        "position": "Forward",
+        "height": "6-9",
+        "height_cm": "206",
+        "weight_lbs": 250,
+        "jersey": "23",
+        "birthdate": "1984-12-30T00:00:00",
+        "headshot_url": "https://cdn.nba.com/headshots/nba/latest/260x190/2544.png"
+      },
+      "profiles": {
+        "2023-24": {
+          "points": 51.4,
+          "rebounds": 40.6,
+          "assists": 69.2,
+          "blocks": 11.1,
+          "steals": 37.1,
+          "fg_pct": 83.1,
+          "fg3_pct": 91.1,
+          "ft_rate": 53.0,
+          "ft_pct": 62.5,
+          "turnovers": 56.3,
+          "raw_points": 25.7,
+          "raw_rebounds": 7.3,
+          "raw_assists": 8.3,
+          "raw_blocks": 0.5,
+          "raw_steals": 1.3,
+          "raw_fg_pct": 54.0,
+          "raw_fg3_pct": 41.0,
+          "raw_ft_rate": 31.8,
+          "raw_ft_pct": 75.0,
+          "raw_tov": 3.5,
+          "scale_used": "cached_cap"
+        }
+      }
+    },
+    "203932": {
+      "generated_at": "2026-08-08",
+      "bio": {
+        "player_id": "203932",
+        "name": "Aaron Gordon",
+        "team": "Denver Nuggets",
+        "position": "Forward",
+        "height": "6-8",
+        "height_cm": "203",
+        "weight_lbs": 235,
+        "jersey": "50",
+        "birthdate": "1995-09-16T00:00:00",
+        "headshot_url": "https://cdn.nba.com/headshots/nba/latest/260x190/203932.png"
+      },
+      "profiles": {
+        "2023-24": {
+          "points": 27.8,
+          "rebounds": 36.1,
+          "assists": 29.2,
+          "blocks": 13.3,
+          "steals": 22.9,
+          "fg_pct": 85.5,
+          "fg3_pct": 64.4,
+          "ft_rate": 62.7,
+          "ft_pct": 39.5,
+          "turnovers": 82.5,
+          "raw_points": 13.9,
+          "raw_rebounds": 6.5,
+          "raw_assists": 3.5,
+          "raw_blocks": 0.6,
+          "raw_steals": 0.8,
+          "raw_fg_pct": 55.6,
+          "raw_fg3_pct": 29.0,
+          "raw_ft_rate": 37.6,
+          "raw_ft_pct": 65.8,
+          "raw_tov": 1.4,
+          "scale_used": "cached_cap"
+        }
+      }
+    }
+  }
+}

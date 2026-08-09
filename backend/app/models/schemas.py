@@ -35,6 +35,7 @@ class ShotEvent(BaseModel):
     x: float
     y: float
     made: bool
+    shot_type: Optional[str] = None
     shot_zone: Optional[str] = None
     shot_distance: Optional[float] = None
 
@@ -45,6 +46,8 @@ class PlayerShotsResponse(BaseModel):
     makes: int
     attempts: int
     shots: List[ShotEvent]
+    data_source: Optional[str] = None
+    snapshot_generated_at: Optional[str] = None
 
 class PlayerBio(BaseModel):
     id: str

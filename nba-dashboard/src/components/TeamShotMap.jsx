@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
-import { api } from '../lib/api';
+import { apiErrorMessage, sharedGet } from '../lib/api';
 
 if (typeof window !== 'undefined' && !window.Plotly) window.Plotly = Plotly;
 
@@ -36,29 +36,28 @@ function arcTrace() {
 
 export default function TeamShotMap({ teamId, season }) {
   const [data, setData] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         // This endpoint returns shots_for / shots_against
-        const res = await api.get('/team_shots', { params: { team_id: teamId, season } });
-        if (alive) setData(res.data);
+        const res = await sharedGet('/team_shots', { team_id: teamId, season });
+        if (alive) { setData(res.data); setError(''); }
         setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       } catch (e) {
         console.error('Error fetching team shots:', e);
-        if (alive) setData({
-          shots_for: [], shots_against: [],
-          summary_for: { fg_pct: 0, fgm: 0, fga: 0, fg3_pct: 0, fg3m: 0, fg3a: 0 },
-          summary_against: { fg_pct: 0, fgm: 0, fga: 0, fg3_pct: 0, fg3m: 0, fg3a: 0 },
-        });
+        if (alive) { setData(null); setError(apiErrorMessage(e, 'Team shot data unavailable.')); }
         setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       }
     })();
     return () => { alive = false; };
   }, [teamId, season]);
 
+  if (error) return <div>{error}</div>;
   if (!data) return <div>Loading team shot maps…</div>;
+  if (data.data_available === false) return <div>No shot data is available for this team-season.</div>;
 
   const forMade = (data.shots_for || []).filter(s => s.made);
   const forMiss = (data.shots_for || []).filter(s => !s.made);

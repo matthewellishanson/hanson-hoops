@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:pages": "cross-env BUILD_TARGET=pages vite build",
+    "test": "node --test tests/*.test.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },

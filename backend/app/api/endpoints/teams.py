@@ -8,7 +8,6 @@ import time
 import pandas as pd
 import logging
 import inspect
-from requests.exceptions import ReadTimeout
 from nba_api.stats.endpoints import (
     shotchartdetail,
     leaguedashteamstats,
@@ -20,8 +19,11 @@ from app.utils.percentiles import team_row_percentiles, team_row_opponent_percen
 from ...utils.seasons import format_season, current_nba_season
 from ...utils.normalize import normalize_stats
 from app.utils.http import with_cache_headers
+from app.services.nba_http import NBAUpstreamError, nba_call, request_timeout_seconds
+from app.services.snapshots import load_season_shot_snapshot, load_team_season_profile
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # ---------------------------
 # Helpers
@@ -89,8 +91,13 @@ def _team_pg_from_gamelog(team_id: int, season_fmt: str) -> dict:
                 gl_kwargs["league_id_nullable"] = "00"
             elif "league_id" in params:
                 gl_kwargs["league_id"] = "00"
+            if "timeout" in params:
+                gl_kwargs["timeout"] = request_timeout_seconds()
 
-        gl = teamgamelog.TeamGameLog(**gl_kwargs).get_data_frames()[0]
+        gl = nba_call(
+            "team_game_log",
+            lambda: teamgamelog.TeamGameLog(**gl_kwargs).get_data_frames()[0],
+        )
         if "TEAM_ID" in gl.columns:
             gl = gl[gl["TEAM_ID"] == int(team_id)].copy()
 
@@ -188,9 +195,14 @@ def _ldt_compat(*, season: str, season_type: str = "Regular Season",
     else:
         league_kw = {}
 
-    df = leaguedashteamstats.LeagueDashTeamStats(
-        **base_kwargs, **measure_kw, **league_kw
-    ).get_data_frames()[0]
+    timeout_kw = {"timeout": request_timeout_seconds()} if "timeout" in params else {}
+
+    df = nba_call(
+        f"league_dash_team_stats:{measure}:{per_mode}",
+        lambda: leaguedashteamstats.LeagueDashTeamStats(
+            **base_kwargs, **measure_kw, **league_kw, **timeout_kw
+        ).get_data_frames()[0],
+    )
 
     if "TEAM_ID" in df.columns:
         df = df[df["TEAM_ID"].astype(str).str.startswith("161061")].copy()
@@ -267,6 +279,15 @@ def get_team_bio(
     data = _fetch_team_bio(team_id)
     if not data:
         raise HTTPException(status_code=404, detail="Team not found")
+    season_fmt = format_season(season or current_nba_season())
+    season_profile, _metadata = load_team_season_profile(team_id, season_fmt)
+    if season_profile:
+        data = {
+            **data,
+            "name": season_profile.get("team_name") or data.get("name"),
+            "abbreviation": season_profile.get("team_abbreviation") or data.get("abbreviation"),
+            "data_source": "packaged_snapshot",
+        }
     return {
         **data,
         "record": None,
@@ -359,6 +380,19 @@ def get_team_profile_stats(
     # ---- cache key for this computation
     season_eff = season or current_nba_season()
     season_fmt = format_season(season_eff)
+    snapshot, _metadata = load_team_season_profile(team_id, season_fmt)
+    if snapshot:
+        return with_cache_headers(
+            {
+                **snapshot,
+                "team_id": int(team_id),
+                "season": season_fmt,
+                "scale": snapshot.get("scale_used", "percentile"),
+                "opp_scale": snapshot.get("opponent_scale", "percentile"),
+                "data_source": "packaged_snapshot",
+            },
+            seconds=900,
+        )
     key = ("team_profile_stats", int(team_id), season_fmt, scale, opp_scale)
 
     def _maker():
@@ -433,13 +467,19 @@ def get_team_profile_stats(
                 scale_used_team = "cap"
 
             # OPPONENT raw (read from row; treat as "allowed")
-            raw_opp_pts = float(o.get("PTS", 0))
-            raw_opp_fg  = _pct100(o.get("FG_PCT", 0))
-            raw_opp_3p  = _pct100(o.get("FG3_PCT", 0))
-            raw_opp_ast = float(o.get("AST", 0)) if "AST" in o else 0.0
-            raw_opp_reb = float(o.get("REB", 0)) if "REB" in o else 0.0
-            raw_opp_ftm = float(o.get("FTM", 0)) if "FTM" in o else 0.0
-            raw_opp_ft  = _pct100(o.get("FT_PCT", 0)) if "FT_PCT" in o else 0.0
+            def _opp_value(metric: str, default=0.0):
+                prefixed = f"OPP_{metric}"
+                if prefixed in o.index and pd.notna(o.get(prefixed)):
+                    return o.get(prefixed)
+                return o.get(metric, default)
+
+            raw_opp_pts = float(_opp_value("PTS"))
+            raw_opp_fg  = _pct100(_opp_value("FG_PCT"))
+            raw_opp_3p  = _pct100(_opp_value("FG3_PCT"))
+            raw_opp_ast = float(_opp_value("AST"))
+            raw_opp_reb = float(_opp_value("REB"))
+            raw_opp_ftm = float(_opp_value("FTM"))
+            raw_opp_ft  = _pct100(_opp_value("FT_PCT"))
 
             # OPP legs (percentile/dynamic/cap), reusing your helpers
             df_opp_full = _ldt_compat(season=season_fmt, season_type="Regular Season", per_mode="PerGame", measure="Opponent")
@@ -543,19 +583,24 @@ def get_team_profile_stats(
                 "season": season_fmt,
             }
 
-        except Exception as e:
-            print(f"[team_profile_stats] error: {e}")
-            return {
-                "points":0,"rebounds":0,"assists":0,"blocks":0,"steals":0,"fg_pct":0,"fg3_pct":0,"turnovers":0,
-                "raw_points":0,"raw_rebounds":0,"raw_assists":0,"raw_blocks":0,"raw_steals":0,"raw_fg_pct":0,"raw_fg3_pct":0,"raw_tov":0,
-                "opp_points":0,"opp_fg_pct":0,"opp_fg3_pct":0,"opp_ast":0,"opp_reb":0,"opp_ftm":0,"opp_ft_pct":0,
-                "raw_opp_points":0,"raw_opp_fg_pct":0,"raw_opp_fg3_pct":0,"raw_opp_ast":0,"raw_opp_reb":0,"raw_opp_ftm":0,"raw_opp_ft_pct":0,
-                "scale": scale,
-                "scale_used": "error",
-                "opp_scale": opp_scale,
-                "opponent_scale":"error",
-                "season": season_fmt,
-            }
+        except NBAUpstreamError:
+            raise
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception(
+                "team profile construction failed team_id=%s season=%s error_type=%s",
+                team_id,
+                season_fmt,
+                type(exc).__name__,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "team_data_unavailable",
+                    "message": "Team statistics are temporarily unavailable.",
+                },
+            ) from exc
 
     # Use your cache (add ttl=900 if your cache supports it)
     payload = cache.get_or_set(key, _maker)
@@ -564,33 +609,30 @@ def get_team_profile_stats(
 # ---------------------------
 # Cached league shots
 # ---------------------------
-def _fetch_league_shots(season_fmt: str, retries=2, backoff=1.5) -> pd.DataFrame:
-    last_err = None
-    for attempt in range(retries + 1):
-        try:
-            sc = shotchartdetail.ShotChartDetail(
+def _fetch_league_shots(season_fmt: str) -> pd.DataFrame:
+    frames = nba_call(
+        "league_shot_chart",
+        lambda: shotchartdetail.ShotChartDetail(
                 team_id=0,
                 player_id=0,
                 season_nullable=season_fmt,
                 season_type_all_star="Regular Season",
                 context_measure_simple="FGA",
-            )
-            frames = sc.get_data_frames()
-            return frames[0] if frames and len(frames) > 0 else pd.DataFrame()
-        except ReadTimeout as e:
-            last_err = e
-            if attempt < retries:
-                time.sleep(backoff * (attempt + 1))
-            else:
-                break
-        except Exception as e:
-            last_err = e
-            break
-    return pd.DataFrame()
+                timeout=request_timeout_seconds(),
+            ).get_data_frames(),
+    )
+    return frames[0] if frames else pd.DataFrame()
 
 @lru_cache(maxsize=8)
 def _league_shots_for_season(season_fmt: str) -> pd.DataFrame:
-    return _fetch_league_shots(season_fmt)
+    snapshot, _metadata = load_season_shot_snapshot(season_fmt)
+    if snapshot is not None:
+        result = snapshot.copy()
+        result.attrs["data_source"] = "packaged_snapshot"
+        return result
+    result = _fetch_league_shots(season_fmt)
+    result.attrs["data_source"] = "live"
+    return result
 
 # ---------------------------
 # Team shots
@@ -602,16 +644,18 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
 
     def _maker():
         df = _league_shots_for_season(season_fmt)
+        data_source = df.attrs.get("data_source", "live")
         if df.empty:
             return {
                 "season": season_fmt, "team_id": team_id,
+                "data_available": False, "data_source": data_source,
                 "shots_for": [], "shots_against": [],
                 "summary_for": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
                 "summary_against": {"fg_pct": 0.0, "fgm": 0, "fga": 0, "fg3_pct": 0.0, "fg3m": 0, "fg3a": 0},
             }
 
         cols = [
-            "LOC_X","LOC_Y","SHOT_MADE_FLAG","TEAM_ID",
+            "GAME_ID","LOC_X","LOC_Y","SHOT_MADE_FLAG","TEAM_ID",
             "SHOT_ZONE_BASIC","SHOT_DISTANCE","SHOT_TYPE","HTM","VTM"
         ]
         df_local = df[[c for c in cols if c in df.columns]].copy()
@@ -620,7 +664,10 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
         team_row = next((t for t in teams_data if int(t["id"]) == int(team_id)), None)
         team_abbr = (team_row or {}).get("abbreviation")
 
-        if "HTM" in df_local.columns and "VTM" in df_local.columns and team_abbr:
+        if "GAME_ID" in df_local.columns and "TEAM_ID" in df_local.columns:
+            team_games = df_local.loc[df_local["TEAM_ID"] == int(team_id), "GAME_ID"].dropna().unique()
+            df_local = df_local[df_local["GAME_ID"].isin(team_games)].copy()
+        elif "HTM" in df_local.columns and "VTM" in df_local.columns and team_abbr:
             df_local["HTM"] = df_local["HTM"].astype(str).str.upper()
             df_local["VTM"] = df_local["VTM"].astype(str).str.upper()
             involves = (df_local["HTM"] == team_abbr) | (df_local["VTM"] == team_abbr)
@@ -663,6 +710,8 @@ def team_shots(team_id: int = Query(...), season: str = Query(...)):
         return {
             "season": season_fmt,
             "team_id": team_id,
+            "data_available": True,
+            "data_source": data_source,
             "shots_for": to_events(shots_for_df),
             "shots_against": to_events(shots_against_df),
             "summary_for": summarize(shots_for_df),
@@ -695,10 +744,15 @@ def debug_team_gamelog(team_id: int = Query(...), season: str = Query(...)):
                 gl_kwargs["league_id_nullable"] = "00"
             elif "league_id" in params:
                 gl_kwargs["league_id"] = "00"
+            if "timeout" in params:
+                gl_kwargs["timeout"] = request_timeout_seconds()
 
-        gl = teamgamelog.TeamGameLog(**gl_kwargs).get_data_frames()[0]
+        gl = nba_call(
+            "debug_team_game_log",
+            lambda: teamgamelog.TeamGameLog(**gl_kwargs).get_data_frames()[0],
+        )
     except Exception as e:
-        return {"season": season_fmt, "team_id": team_id, "error": str(e)}
+        raise
 
     if gl is None or gl.empty:
         return {"season": season_fmt, "team_id": team_id, "empty": True}
@@ -754,21 +808,12 @@ def debug_leaguedashteamstats(
     season: str = Query(..., description="e.g. 2023-24"),
     season_type: str = Query("Regular Season"),
 ):
-    try:
-        df_team = _ldt_compat(season=season, season_type=season_type, per_mode="PerGame", measure="Base")
-    except Exception as e:
-        df_team = pd.DataFrame()
-        team_err = str(e)
-    else:
-        team_err = None
-
-    try:
-        df_opp  = _ldt_compat(season=season, season_type=season_type, per_mode="PerGame", measure="Opponent")
-    except Exception as e:
-        df_opp = pd.DataFrame()
-        opp_err = str(e)
-    else:
-        opp_err = None
+    df_team = _ldt_compat(
+        season=season, season_type=season_type, per_mode="PerGame", measure="Base"
+    )
+    df_opp = _ldt_compat(
+        season=season, season_type=season_type, per_mode="PerGame", measure="Opponent"
+    )
 
     def brief(df: pd.DataFrame):
         return {
@@ -783,5 +828,4 @@ def debug_leaguedashteamstats(
         "season_type": season_type,
         "base": brief(df_team),
         "opponent": brief(df_opp),
-        "errors": {"base": team_err, "opponent": opp_err},
     }

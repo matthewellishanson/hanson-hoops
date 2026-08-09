@@ -4,9 +4,10 @@ from nba_api.stats.endpoints import LeagueDashPlayerStats, CommonPlayerInfo
 import pandas as pd
 from pathlib import Path
 import time
+from app.services.nba_http import nba_call, request_timeout_seconds
 
-CACHE_DIR = Path("app/cache")
-CACHE_DIR.mkdir(exist_ok=True)
+CACHE_DIR = Path(__file__).resolve().parents[1] / "cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 HEIGHT_CACHE = CACHE_DIR / "player_heights.csv"
 STREAM_CACHE = CACHE_DIR / "rookie_heights.csv"
@@ -23,7 +24,12 @@ def _save_height_cache(df):
 
 
 def _get_player_height(player_id):
-    info = CommonPlayerInfo(player_id=player_id).get_data_frames()[0]
+    info = nba_call(
+        "rookie_common_player_info",
+        lambda: CommonPlayerInfo(
+            player_id=player_id, timeout=request_timeout_seconds()
+        ).get_data_frames()[0],
+    )
     h = info.loc[0, "HEIGHT"]
     feet, inches = h.split("-")
     return int(feet) * 12 + int(inches)
@@ -45,10 +51,14 @@ def _build_rookie_height_stream(start_season, end_season):
         season_str = f"{season}-{str(season+1)[-2:]}"
         print(f"Fetching {season_str} rookies…")
 
-        stats = LeagueDashPlayerStats(
-            season=season_str,
-            season_type_all_star="Regular Season"
-        ).get_data_frames()[0]
+        stats = nba_call(
+            "rookie_league_dash_player_stats",
+            lambda: LeagueDashPlayerStats(
+                season=season_str,
+                season_type_all_star="Regular Season",
+                timeout=request_timeout_seconds(),
+            ).get_data_frames()[0],
+        )
 
         if "PLAYER_EXPERIENCE" in stats.columns:
             stats = stats[stats["PLAYER_EXPERIENCE"].str.lower() == "rookie"]
@@ -62,7 +72,7 @@ def _build_rookie_height_stream(start_season, end_season):
                     print(f"Fetched height for {pid}")
                     time.sleep(0.6)
                 except Exception as e:
-                    print(f"Height fetch failed for {pid}: {e}")
+                    print(f"Height fetch failed for {pid}: {type(e).__name__}")
                     continue
 
             heights.append({"PLAYER_ID": pid, "HEIGHT_IN": height_map[pid]})

@@ -70,7 +70,10 @@ export default function PlayerDashboard({
               )}
 
               {(showSelectorIndex === idx) || !p.playerId ? (
-                <PlayerSelector initialSeason={p.season} onSelect={(player) => updatePlayer(idx, player)} />
+                <PlayerSelector
+                  initialSeason={p.season}
+                  onSelect={(player) => updatePlayer(idx, player)}
+                />
               ) : (
                 <PlayerCard
                   style={{ '--card-h': cardHeight }}

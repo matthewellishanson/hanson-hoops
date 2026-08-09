@@ -53,7 +53,8 @@ function currentNbaSeasonLabel() {
 // Player Dashboard wrapper with state management
 function PlayerDashboardWrapper() {
   const [selectedPlayers, setSelectedPlayers] = useState([
-    { playerId: '2544', playerName: 'LeBron James', season: '2023-24' },
+    { playerId: '2544', playerName: 'LeBron James', season: currentNbaSeasonLabel() },
+    { playerId: '203932', playerName: 'Aaron Gordon', season: currentNbaSeasonLabel() },
   ]);
   const [showSelectorIndex, setShowSelectorIndex] = useState(null);
   const DEFAULT_SEASON = currentNbaSeasonLabel();
@@ -64,7 +65,7 @@ function PlayerDashboardWrapper() {
       next[idx] = {
         playerId: player.id,
         playerName: player.name,
-        season: player.season || DEFAULT_SEASON,
+        season: player.season || next[idx]?.season || DEFAULT_SEASON,
       };
       return next;
     });
@@ -79,7 +80,10 @@ function PlayerDashboardWrapper() {
   const onAddPlayer = () => {
     setSelectedPlayers(prev => {
       if (prev.length >= 4) return prev;
-      const next = [...prev, { playerId: '', playerName: '', season: DEFAULT_SEASON }];
+      const next = [
+        ...prev,
+        { playerId: '', playerName: '', season: DEFAULT_SEASON },
+      ];
       setShowSelectorIndex(next.length - 1);
       return next;
     });

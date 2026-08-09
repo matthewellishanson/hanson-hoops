@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import PlayerRadarChart from './PlayerRadarChart';
 import ShotMap from './ShotMap';
-import { api } from '../lib/api';
+import { apiErrorMessage, sharedGet } from '../lib/api';
 import '../PlayerCard.css';
 import '../global.css';
 
@@ -10,6 +10,7 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
   const [backMounted, setBackMounted] = useState(false);
   const faceRef = useRef(null);
   const [bio, setBio] = useState(null);
+  const [bioError, setBioError] = useState('');
   const startYear = Number((season || '').split('-')[0]);
   const eraHasShots = startYear >= 1996;
 
@@ -38,29 +39,25 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
   // Fetch bio when playerId changes
   useEffect(() => {
     let alive = true;
-    // Abort stale requests if player/season changes before response returns.
-    const controller = new AbortController();
     (async () => {
       try {
         if (!playerId) return;
-        const { data } = await api.get('/player_bio', {
+        const { data } = await sharedGet('/player_bio', {
           params: { player_id: playerId, season },
           // Keep this lower than the fit call so card chrome degrades gracefully.
           timeout: 25000,
-          signal: controller.signal,
         });
-        if (alive) setBio(data);
+        if (alive) { setBio(data); setBioError(''); }
       } catch (e) {
-        if (e?.code === 'ERR_CANCELED') return;
         console.error('Error fetching bio:', e?.message || e);
-        if (alive) setBio(null);
+        if (alive) { setBio(null); setBioError(apiErrorMessage(e, 'Bio unavailable.')); }
       }
     })();
 
     setFlipped(false);
     setBackMounted(false);
     const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
-    return () => { alive = false; controller.abort(); clearTimeout(t); };
+    return () => { alive = false; clearTimeout(t); };
   }, [playerId, season]);
 
   return (
@@ -68,7 +65,7 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
       <div className={`pcard-flip ${flipped ? 'is-flipped' : ''}`}>
         {/* FRONT */}
         <div className="pcard-face pcard-front">
-          <HeaderBar bio={bio} fallbackName={playerName} onReplace={onReplace} />
+          <HeaderBar bio={bio} bioError={bioError} fallbackName={playerName} onReplace={onReplace} />
           <div className="chart-container">
             <PlayerRadarChart
               key={`${playerId}-${season}`}
@@ -91,7 +88,7 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
 
         {/* BACK */}
         <div className="pcard-face pcard-back">
-          <HeaderBar bio={bio} fallbackName={playerName} onReplace={onReplace} />
+          <HeaderBar bio={bio} bioError={bioError} fallbackName={playerName} onReplace={onReplace} />
           <div className="chart-container">
             {backMounted ? (
               <ShotMap playerId={playerId} season={season} />
@@ -110,7 +107,7 @@ export default function PlayerCard({ playerId, playerName, season, onReplace, st
   );
 }
 
-function HeaderBar({ bio, fallbackName, onReplace }) {
+function HeaderBar({ bio, bioError, fallbackName, onReplace }) {
   const name = bio?.name || fallbackName;
   const team = bio?.team;
   const pos = bio?.position;
@@ -140,6 +137,7 @@ function HeaderBar({ bio, fallbackName, onReplace }) {
       </div>
 
       <div className="pcard-meta">
+        {bioError && <span className="pcard-meta-error" title={bioError}>Bio unavailable</span>}
         {age != null && <span>Age: {age}</span>}
         {ht && <span>Height: {ht}{htcm ? ` (${htcm} cm)` : ''}</span>}
         {wt != null && <span>Weight: {wt} lbs</span>}

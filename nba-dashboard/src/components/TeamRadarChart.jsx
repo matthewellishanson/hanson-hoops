@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
-import { api } from '../lib/api';
+import { apiErrorMessage, sharedGet } from '../lib/api';
 
 const ACCENT = '#7c3aed';
 
@@ -20,15 +20,15 @@ export default function TeamRadarChart({ teamId, season, teamName = 'Team' }) {
     (async () => {
       try {
         if (!teamId) return;
-        const { data } = await api.get('/team_profile_stats', {
-          params: { team_id: teamId, season, scale: 'percentile', opp_scale: 'percentile' },
+        const { data } = await sharedGet('/team_profile_stats', {
+          team_id: teamId, season, scale: 'percentile', opp_scale: 'percentile',
         });
         if (!alive) return;
         setStats(data);
         setError(null);
       } catch (e) {
         console.error('Error fetching team profile stats:', e);
-        if (alive) { setStats(null); setError('Team data unavailable.'); }
+        if (alive) { setStats(null); setError(apiErrorMessage(e, 'Team data unavailable.')); }
       }
     })();
     return () => { alive = false; };

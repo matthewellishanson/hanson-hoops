@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import TeamRadarChart from './TeamRadarChart';
 import TeamShotMap from './TeamShotMap';
-import { api } from '../lib/api';
+import { sharedGet } from '../lib/api';
 import '../PlayerCard.css';
 
 export default function TeamCard({ teamId, teamName, season, onReplace, style }) {
@@ -41,9 +41,7 @@ export default function TeamCard({ teamId, teamName, season, onReplace, style })
     (async () => {
       try {
         if (!teamId) return;
-        const { data } = await api.get('/team_bio', {
-          params: { team_id: teamId, season }
-        });
+        const { data } = await sharedGet('/team_bio', { team_id: teamId, season });
         if (alive) setBio(data);
       } catch (e) {
         console.error('Error fetching team bio:', e);

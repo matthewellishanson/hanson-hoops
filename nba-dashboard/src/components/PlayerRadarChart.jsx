@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
-import { api } from '../lib/api';
+import { apiErrorMessage, sharedGet } from '../lib/api';
 
 const ACCENT = '#7c3aed';
 
@@ -15,20 +15,26 @@ export default function PlayerRadarChart({ playerId, season, playerName = 'Playe
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    let active = true;
     (async () => {
       try {
         if (!playerId) return;
-        const { data } = await api.get('/player_profile_stats', {
+        const { data } = await sharedGet('/player_profile_stats', {
           params: { player_id: playerId, season, scale: 'percentile' },
         });
-        setStats(data);
-        setError(null);
+        if (active) {
+          setStats(data);
+          setError(null);
+        }
       } catch (e) {
         console.error(e);
-        setStats(null);
-        setError('Player data unavailable.');
+        if (active) {
+          setStats(null);
+          setError(apiErrorMessage(e, 'Player data unavailable.'));
+        }
       }
     })();
+    return () => { active = false; };
   }, [playerId, season]);
 
   if (!playerId) return <div>Select a player to see a chart.</div>;

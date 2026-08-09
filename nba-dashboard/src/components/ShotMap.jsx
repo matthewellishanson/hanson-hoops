@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
-import { api } from '../lib/api';
+import { apiErrorMessage, sharedGet } from '../lib/api';
 
 // Let react-plotly.js find Plotly on window
 if (typeof window !== 'undefined' && !window.Plotly) {
@@ -83,19 +83,20 @@ const Pill = ({ title, s }) => (
 
 export default function ShotMap({ playerId, season }) {
   const [data, setData] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!playerId) { setData(null); return; }
+    if (!playerId) { setData(null); setError(''); return; }
     let active = true;
     (async () => {
       try {
-        const res = await api.get('/player_shots', { params: { player_id: playerId, season } });
-        if (active) setData(res.data);
+        const res = await sharedGet('/player_shots', { params: { player_id: playerId, season } });
+        if (active) { setData(res.data); setError(''); }
         // ensure Plotly resizes under grid layouts
         setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       } catch (e) {
         console.error('Error fetching shots:', e);
-        if (active) setData({ shots: [] });
+        if (active) { setData(null); setError(apiErrorMessage(e, 'Shot chart unavailable.')); }
         setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       }
     })();
@@ -103,6 +104,7 @@ export default function ShotMap({ playerId, season }) {
   }, [playerId, season]);
 
   if (!playerId) return <div>Select a player to see a shot map.</div>;
+  if (error) return <div className="text-muted" style={{padding: 12}}>{error}</div>;
   if (!data) return <div>Loading shot map…</div>;
 
   const startYear = Number((season || '').split('-')[0]);

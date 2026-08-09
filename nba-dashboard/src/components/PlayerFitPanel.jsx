@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { api } from '../lib/api';
+import { api, apiErrorMessage } from '../lib/api';
+import { pairSeasonParams, resolvePairSeason } from '../lib/pairSeason';
 
 function axisEntries(axes = {}) {
   // Keep axis ordering stable across cards for visual scan consistency.
@@ -41,6 +42,7 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
   // Fit panel operates on first two selected players only (comparison pair).
   const chosen = useMemo(() => selectedPlayers.filter(p => p?.playerId).slice(0, 2), [selectedPlayers]);
   const hasPair = chosen.length === 2;
+  const seasonPolicy = useMemo(() => resolvePairSeason(chosen), [chosen]);
 
   const [offense, setOffense] = useState(1.0);
   const [defense, setDefense] = useState(1.0);
@@ -53,7 +55,7 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
   const [payload, setPayload] = useState(null);
 
   useEffect(() => {
-    if (!hasPair) {
+    if (!hasPair || !seasonPolicy.ok) {
       setPayload(null);
       setError('');
       return;
@@ -61,9 +63,8 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
 
     const a = chosen[0];
     const b = chosen[1];
-    const season = a.season || '2025-26';
     const params = {
-      season,
+      ...pairSeasonParams(chosen),
       min_minutes: 300,
       offense,
       defense,
@@ -93,14 +94,14 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
         // Ignore expected cancellation noise from re-renders or input changes.
         if (e?.code === 'ERR_CANCELED') return;
         setPayload(null);
-        setError(e?.response?.data?.detail || 'Could not load projected fit.');
+        setError(apiErrorMessage(e, 'Could not load projected fit.'));
       })
       .finally(() => {
         if (alive) setLoading(false);
       });
 
     return () => { alive = false; controller.abort(); };
-  }, [hasPair, chosen, offense, defense, spacers, rebounding, primaryHandler]);
+  }, [hasPair, chosen, seasonPolicy.ok, seasonPolicy.seasonA, seasonPolicy.seasonB, offense, defense, spacers, rebounding, primaryHandler]);
 
   return (
     <div className="fit-panel card shadow-sm mb-4">
@@ -119,7 +120,11 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
           </div>
         )}
 
-        {hasPair && (
+        {hasPair && !seasonPolicy.ok && (
+          <div className="alert alert-warning mb-0">{seasonPolicy.reason}</div>
+        )}
+
+        {hasPair && seasonPolicy.ok && (
           <>
             <div className="row g-3 mb-3">
               <div className="col-12 col-md-4">
@@ -189,8 +194,8 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
                 </div>
 
                 <div className="row g-3">
-                  <AxisBars title={payload.player_a?.name || 'Player A'} axes={payload.player_a?.axes || {}} />
-                  <AxisBars title={payload.player_b?.name || 'Player B'} axes={payload.player_b?.axes || {}} />
+                  <AxisBars title={`${payload.player_a?.name || 'Player A'} (${payload.player_a?.season || seasonPolicy.seasonA})`} axes={payload.player_a?.axes || {}} />
+                  <AxisBars title={`${payload.player_b?.name || 'Player B'} (${payload.player_b?.season || seasonPolicy.seasonB})`} axes={payload.player_b?.axes || {}} />
                 </div>
               </>
             )}

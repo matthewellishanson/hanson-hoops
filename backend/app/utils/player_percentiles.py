@@ -3,6 +3,7 @@ from functools import lru_cache
 import pandas as pd
 import inspect
 from nba_api.stats.endpoints import leaguedashplayerstats
+from app.services.nba_http import nba_call, request_timeout_seconds
 
 def _pct100(series: pd.Series) -> pd.Series:
     s = pd.to_numeric(series, errors="coerce").fillna(0.0)
@@ -29,8 +30,13 @@ def _player_base_table(season_fmt: str) -> pd.DataFrame:
         base_kwargs["league_id_nullable"] = "00"
     elif "league_id" in params:
         base_kwargs["league_id"] = "00"
+    if "timeout" in params:
+        base_kwargs["timeout"] = request_timeout_seconds()
 
-    df = leaguedashplayerstats.LeagueDashPlayerStats(**base_kwargs).get_data_frames()[0]
+    df = nba_call(
+        "player_percentile_table",
+        lambda: leaguedashplayerstats.LeagueDashPlayerStats(**base_kwargs).get_data_frames()[0],
+    )
     if df is None or df.empty:
         return pd.DataFrame()
 
