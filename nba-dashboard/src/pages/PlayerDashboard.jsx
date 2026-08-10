@@ -11,7 +11,7 @@ function chunk2(arr) {
 }
 
 export default function PlayerDashboard({
-  selectedPlayers = [],          // array of { playerId, playerName, season }
+  selectedPlayers = [],          // array of { cardId, playerId, playerName, season }
   showSelectorIndex = null,      // which slot (index) is currently showing the selector UI
   setShowSelectorIndex = () => {},
   updatePlayer = () => {},       // callback(idx, { id, name, season? })
@@ -33,7 +33,7 @@ export default function PlayerDashboard({
 
   return (
     <div className="container py-4 min-vh-100" style={{ maxWidth: 1280 }}>
-      {/* Pair-fit panel reads selected players and computes chemistry for first two picks. */}
+      {/* Pair-fit panel owns the active pair selection; cardId keeps it stable across card edits/removals. */}
       <PlayerFitPanel selectedPlayers={selectedPlayers} />
 
       {/* Loop each row (two cards per row) */}
@@ -49,7 +49,7 @@ export default function PlayerDashboard({
         const idx = rIndex * 2 + idxInRow;
 
         // ✅ Key now includes season so replacing same player w/ new season remounts
-        const wrapperKey = `${p.playerId || 'empty'}-${p.season || 'na'}-${idx}`;
+        const wrapperKey = `${p.cardId}-${p.playerId || 'empty'}-${p.season || 'na'}`;
 
         const colClasses = isSingle
           ? 'col-12 col-md-8 col-lg-6 d-flex'

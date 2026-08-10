@@ -34,3 +34,12 @@ test('a pair with a missing season is rejected truthfully', () => {
   assert.equal(result.ok, false);
   assert.match(result.reason, /season for both/);
 });
+
+test('pair season resolution requires an explicit two-card pair', () => {
+  const result = resolvePairSeason([
+    { playerId: '11', season: '2001-02' },
+    { playerId: '22', season: '2002-03' },
+    { playerId: '33', season: '2003-04' },
+  ]);
+  assert.equal(result.ok, false);
+});

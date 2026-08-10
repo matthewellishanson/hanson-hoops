@@ -1,6 +1,6 @@
 export function resolvePairSeason(selectedPlayers = []) {
-  const pair = selectedPlayers.filter((player) => player?.playerId).slice(0, 2);
-  if (pair.length !== 2) {
+  const pair = Array.isArray(selectedPlayers) ? selectedPlayers : [];
+  if (pair.length !== 2 || pair.some((player) => !player?.playerId)) {
     return { ok: false, seasonA: null, seasonB: null, reason: 'Select at least two players to view projected fit.' };
   }
   const seasonA = pair[0].season;

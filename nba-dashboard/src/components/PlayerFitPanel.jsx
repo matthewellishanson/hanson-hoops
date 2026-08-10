@@ -1,6 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, apiErrorMessage } from '../lib/api';
-import { pairSeasonParams, resolvePairSeason } from '../lib/pairSeason';
+import {
+  getActiveFitCards,
+  getValidFitCards,
+  reconcileFitPair,
+  selectFitPairPosition,
+} from '../lib/fitPair';
+import { resolvePairSeason } from '../lib/pairSeason';
 
 function axisEntries(axes = {}) {
   // Keep axis ordering stable across cards for visual scan consistency.
@@ -39,10 +45,50 @@ function AxisBars({ title, axes }) {
 }
 
 export default function PlayerFitPanel({ selectedPlayers = [] }) {
-  // Fit panel operates on first two selected players only (comparison pair).
-  const chosen = useMemo(() => selectedPlayers.filter(p => p?.playerId).slice(0, 2), [selectedPlayers]);
-  const hasPair = chosen.length === 2;
+  const validCards = useMemo(() => getValidFitCards(selectedPlayers), [selectedPlayers]);
+  const [pairIds, setPairIds] = useState([null, null]);
+  const reconciledPairIds = useMemo(
+    () => reconcileFitPair(validCards, pairIds),
+    [validCards, pairIds],
+  );
+  const chosen = useMemo(
+    () => getActiveFitCards(validCards, reconciledPairIds),
+    [validCards, reconciledPairIds],
+  );
+  const hasPair = chosen.every(Boolean);
   const seasonPolicy = useMemo(() => resolvePairSeason(chosen), [chosen]);
+  const cardOptions = useMemo(() => validCards.map((card) => {
+    const cardPosition = selectedPlayers.findIndex((candidate) => candidate.cardId === card.cardId) + 1;
+    return {
+      card,
+      label: `Card ${cardPosition} — ${card.playerName || 'Selected player'} (${card.season})`,
+    };
+  }), [selectedPlayers, validCards]);
+  const labelsById = useMemo(
+    () => new Map(cardOptions.map(({ card, label }) => [card.cardId, label])),
+    [cardOptions],
+  );
+  const excludedCards = cardOptions.filter(({ card }) => !reconciledPairIds.includes(card.cardId));
+  const activeLabelA = labelsById.get(reconciledPairIds[0]) || 'No valid card selected';
+  const activeLabelB = labelsById.get(reconciledPairIds[1]) || 'No valid card selected';
+  const playerAId = chosen[0]?.playerId || null;
+  const playerBId = chosen[1]?.playerId || null;
+  const seasonA = seasonPolicy.seasonA;
+  const seasonB = seasonPolicy.seasonB;
+
+  useEffect(() => {
+    setPairIds((current) => {
+      const next = reconcileFitPair(validCards, current);
+      return next[0] === current[0] && next[1] === current[1] ? current : next;
+    });
+  }, [validCards]);
+
+  const selectPairCard = (position, cardId) => {
+    setPairIds((current) => {
+      const currentValidPair = reconcileFitPair(validCards, current);
+      return selectFitPairPosition(currentValidPair, position, cardId);
+    });
+  };
 
   const [offense, setOffense] = useState(1.0);
   const [defense, setDefense] = useState(1.0);
@@ -50,21 +96,33 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
   const [rebounding, setRebounding] = useState(1.0);
   const [primaryHandler, setPrimaryHandler] = useState('auto');
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [payload, setPayload] = useState(null);
+  const requestKey = hasPair && seasonPolicy.ok
+    ? JSON.stringify([
+        reconciledPairIds,
+        playerAId,
+        playerBId,
+        seasonA,
+        seasonB,
+        offense,
+        defense,
+        spacers,
+        rebounding,
+        primaryHandler,
+      ])
+    : null;
+  const [loadingRequest, setLoadingRequest] = useState(null);
+  const [errorResult, setErrorResult] = useState(null);
+  const [payloadResult, setPayloadResult] = useState(null);
+  const loading = Boolean(requestKey && loadingRequest === requestKey);
+  const error = errorResult?.requestKey === requestKey ? errorResult.message : '';
+  const payload = payloadResult?.requestKey === requestKey ? payloadResult.data : null;
 
   useEffect(() => {
-    if (!hasPair || !seasonPolicy.ok) {
-      setPayload(null);
-      setError('');
-      return;
-    }
+    if (!requestKey) return;
 
-    const a = chosen[0];
-    const b = chosen[1];
     const params = {
-      ...pairSeasonParams(chosen),
+      season_a: seasonA,
+      season_b: seasonB,
       min_minutes: 300,
       offense,
       defense,
@@ -76,10 +134,10 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
     let alive = true;
     // Abort in-flight requests when sliders/selection change to prevent stale updates.
     const controller = new AbortController();
-    setLoading(true);
-    setError('');
+    setLoadingRequest(requestKey);
+    setErrorResult(null);
 
-    api.get(`/fit/pair/${a.playerId}/${b.playerId}`, {
+    api.get(`/fit/pair/${playerAId}/${playerBId}`, {
       params,
       // First model call can be slow while backend builds feature caches.
       timeout: 90000,
@@ -87,21 +145,24 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
     })
       .then((res) => {
         if (!alive) return;
-        setPayload(res.data || null);
+        setPayloadResult({ requestKey, data: res.data || null });
       })
       .catch((e) => {
         if (!alive) return;
         // Ignore expected cancellation noise from re-renders or input changes.
         if (e?.code === 'ERR_CANCELED') return;
-        setPayload(null);
-        setError(apiErrorMessage(e, 'Could not load projected fit.'));
+        setPayloadResult(null);
+        setErrorResult({
+          requestKey,
+          message: apiErrorMessage(e, 'Could not load projected fit.'),
+        });
       })
       .finally(() => {
-        if (alive) setLoading(false);
+        if (alive) setLoadingRequest(null);
       });
 
     return () => { alive = false; controller.abort(); };
-  }, [hasPair, chosen, seasonPolicy.ok, seasonPolicy.seasonA, seasonPolicy.seasonB, offense, defense, spacers, rebounding, primaryHandler]);
+  }, [requestKey, playerAId, playerBId, seasonA, seasonB, offense, defense, spacers, rebounding, primaryHandler]);
 
   return (
     <div className="fit-panel card shadow-sm mb-4">
@@ -114,9 +175,59 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
           {payload?.weight_version && <span className="badge text-bg-light">{payload.weight_version}</span>}
         </div>
 
+        {validCards.length >= 2 && (
+          <div className="border rounded p-3 mb-3" aria-label="Active fit pair">
+            <div className="row g-3">
+              <div className="col-12 col-md-6">
+                <label className="form-label fw-semibold" htmlFor="fit-pair-card-a">Pair position A</label>
+                <select
+                  id="fit-pair-card-a"
+                  className="form-select"
+                  value={reconciledPairIds[0] || ''}
+                  aria-describedby="fit-pair-help"
+                  onChange={(event) => selectPairCard(0, event.target.value)}
+                >
+                  {cardOptions.map(({ card, label }) => (
+                    <option key={card.cardId} value={card.cardId}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-12 col-md-6">
+                <label className="form-label fw-semibold" htmlFor="fit-pair-card-b">Pair position B</label>
+                <select
+                  id="fit-pair-card-b"
+                  className="form-select"
+                  value={reconciledPairIds[1] || ''}
+                  aria-describedby="fit-pair-help"
+                  onChange={(event) => selectPairCard(1, event.target.value)}
+                >
+                  {cardOptions.map(({ card, label }) => (
+                    <option key={card.cardId} value={card.cardId}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p id="fit-pair-help" className="small text-muted mt-2 mb-2">
+              Pair order is explicit. Choosing the card already in the other position swaps positions A and B.
+            </p>
+            <div className="small">
+              <strong>Active pair:</strong> A — {activeLabelA}; B — {activeLabelB}.
+            </div>
+            {excludedCards.length > 0 && (
+              <div className="small text-muted mt-1">
+                <strong>Not included in this pairwise analysis:</strong>{' '}
+                {excludedCards.map(({ label }) => label).join('; ')}.
+              </div>
+            )}
+            <div className="small text-muted mt-1">
+              The projected score applies only to this ordered pair, not the full set of selected cards.
+            </div>
+          </div>
+        )}
+
         {!hasPair && (
           <div className="alert alert-info mb-0">
-            Select at least two players to view projected fit.
+            Select two valid player-season cards to view projected fit.
           </div>
         )}
 
@@ -147,8 +258,8 @@ export default function PlayerFitPanel({ selectedPlayers = [] }) {
                 <label className="form-label">Primary handler assumption</label>
                 <select className="form-select" value={primaryHandler} onChange={(e) => setPrimaryHandler(e.target.value)}>
                   <option value="auto">Auto</option>
-                  <option value="a">{chosen[0]?.playerName || 'Player A'}</option>
-                  <option value="b">{chosen[1]?.playerName || 'Player B'}</option>
+                  <option value="a">A — {activeLabelA}</option>
+                  <option value="b">B — {activeLabelB}</option>
                 </select>
               </div>
             </div>

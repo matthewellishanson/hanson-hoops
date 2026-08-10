@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import PlayerDashboard from './pages/PlayerDashboard';
 import TeamDashboard from './pages/TeamDashboard.jsx';
@@ -53,9 +53,10 @@ function currentNbaSeasonLabel() {
 // Player Dashboard wrapper with state management
 function PlayerDashboardWrapper() {
   const [selectedPlayers, setSelectedPlayers] = useState([
-    { playerId: '2544', playerName: 'LeBron James', season: currentNbaSeasonLabel() },
-    { playerId: '203932', playerName: 'Aaron Gordon', season: currentNbaSeasonLabel() },
+    { cardId: 'card-1', playerId: '2544', playerName: 'LeBron James', season: currentNbaSeasonLabel() },
+    { cardId: 'card-2', playerId: '203932', playerName: 'Aaron Gordon', season: currentNbaSeasonLabel() },
   ]);
+  const nextCardId = useRef(3);
   const [showSelectorIndex, setShowSelectorIndex] = useState(null);
   const DEFAULT_SEASON = currentNbaSeasonLabel();
 
@@ -63,6 +64,7 @@ function PlayerDashboardWrapper() {
     setSelectedPlayers(prev => {
       const next = [...prev];
       next[idx] = {
+        cardId: next[idx].cardId,
         playerId: player.id,
         playerName: player.name,
         season: player.season || next[idx]?.season || DEFAULT_SEASON,
@@ -78,11 +80,13 @@ function PlayerDashboardWrapper() {
   };
 
   const onAddPlayer = () => {
+    const cardId = `card-${nextCardId.current}`;
+    nextCardId.current += 1;
     setSelectedPlayers(prev => {
       if (prev.length >= 4) return prev;
       const next = [
         ...prev,
-        { playerId: '', playerName: '', season: DEFAULT_SEASON },
+        { cardId, playerId: '', playerName: '', season: DEFAULT_SEASON },
       ];
       setShowSelectorIndex(next.length - 1);
       return next;
