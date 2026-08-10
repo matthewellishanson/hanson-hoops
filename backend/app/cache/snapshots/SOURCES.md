@@ -22,7 +22,9 @@ python -m app.scripts.build_multiseason_snapshots `
   --kaggle-player-stats <PlayerStatistics.csv>
 ```
 
-`build_comparison_snapshots` remains available for rebuilding an individual
-shot season from a revision-pinned `shotdetail_<start-year>.csv` archive. Keep
+`build_shot_snapshots` rebuilds every extracted
+`shotdetail_<start-year>.csv` it finds into a compact, per-season gzip file and
+updates shot availability in `coverage.json`. `build_comparison_snapshots`
+remains available for rebuilding a single profile-and-shot season. Keep
 downloaded source data outside the snapshot directory and commit only the
 compact generated artifacts.

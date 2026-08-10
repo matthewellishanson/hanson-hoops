@@ -1,8 +1,12 @@
+import json
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.endpoints import teams
+from app.api.endpoints import players, teams
 from app.main import app
+from app.services import snapshots
 from app.services.nba_http import NBAUpstreamError
 
 
@@ -40,6 +44,65 @@ def test_current_player_shots_use_packaged_snapshot(client):
     assert response.status_code == 200
     assert response.json()["data_source"] == "packaged_snapshot"
     assert response.json()["attempts"] == 919
+
+
+@pytest.mark.parametrize(
+    ("player_id", "season", "attempts", "makes"),
+    [
+        ("201951", "2012-13", 971, 448),
+        ("1630162", "2021-22", 1245, 549),
+        ("893", "1996-97", 1892, 920),
+    ],
+)
+def test_historical_player_shots_use_packaged_snapshots(
+    client, monkeypatch, player_id, season, attempts, makes
+):
+    snapshots._player_shot_rows.cache_clear()
+    monkeypatch.setattr(
+        players,
+        "_player_shots_for_season",
+        lambda *_args: pytest.fail("historical packaged shots must not call stats.nba.com"),
+    )
+    response = client.get(
+        f"/player_shots?player_id={player_id}&season={season}",
+        headers=ORIGIN_HEADERS,
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == PAGES_ORIGIN
+    assert response.json()["data_source"] == "packaged_snapshot"
+    assert response.json()["attempts"] == attempts
+    assert response.json()["makes"] == makes
+
+
+def test_player_shot_snapshot_coverage_matches_packaged_files():
+    root = Path(__file__).resolve().parents[1] / "app" / "cache" / "snapshots"
+    coverage = json.loads((root / "coverage.json").read_text(encoding="utf-8"))
+    supported = [
+        item
+        for item in coverage["seasons"]
+        if 1996 <= int(item["season"].split("-", 1)[0]) <= 2025
+    ]
+    assert len(supported) == 30
+    assert all(item["shots"] is True for item in supported)
+    assert all(
+        (root / "player-seasons" / f"{item['season']}-shots.csv.gz").is_file()
+        for item in supported
+    )
+
+
+def test_player_shots_before_location_era_do_not_call_upstream(client, monkeypatch):
+    monkeypatch.setattr(
+        players,
+        "_player_shots_for_season",
+        lambda *_args: pytest.fail("pre-1996 requests must not call stats.nba.com"),
+    )
+    response = client.get(
+        "/player_shots?player_id=893&season=1995-96", headers=ORIGIN_HEADERS
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == PAGES_ORIGIN
+    assert response.json()["data_source"] == "not_available_for_era"
+    assert response.json()["attempts"] == 0
 
 
 def test_fit_before_supported_tracking_era_is_truthful(client):

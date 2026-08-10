@@ -153,7 +153,19 @@ def load_player_season_profile(player_id: str, season: str) -> tuple[dict | None
     return record, metadata
 
 
-@lru_cache(maxsize=4)
+PLAYER_SHOT_COLUMNS = (
+    "PLAYER_ID",
+    "GAME_ID",
+    "LOC_X",
+    "LOC_Y",
+    "SHOT_MADE_FLAG",
+    "SHOT_TYPE",
+    "SHOT_ZONE_BASIC",
+    "SHOT_DISTANCE",
+)
+
+
+@lru_cache(maxsize=2)
 def _player_shots(season: str) -> pd.DataFrame | None:
     shot_path = _player_season_paths(season)[1]
     if not shot_path.is_file():
@@ -167,14 +179,39 @@ def _player_shots(season: str) -> pd.DataFrame | None:
     return frame
 
 
+@lru_cache(maxsize=64)
+def _player_shot_rows(player_id: str, season: str) -> pd.DataFrame | None:
+    """Read one player without retaining a league-wide season frame in memory."""
+    shot_path = _player_season_paths(season)[1]
+    if not shot_path.is_file():
+        return None
+    matches: list[pd.DataFrame] = []
+    try:
+        chunks = pd.read_csv(
+            shot_path,
+            dtype={"PLAYER_ID": "string"},
+            usecols=lambda column: column in PLAYER_SHOT_COLUMNS,
+            chunksize=50_000,
+        )
+        for chunk in chunks:
+            match = chunk[chunk["PLAYER_ID"].astype(str) == str(player_id)]
+            if not match.empty:
+                matches.append(match)
+    except Exception:
+        return None
+    if matches:
+        return pd.concat(matches, ignore_index=True)
+    return pd.DataFrame(columns=PLAYER_SHOT_COLUMNS)
+
+
 def load_player_shot_snapshot(
     player_id: str, season: str
 ) -> tuple[pd.DataFrame | None, dict]:
-    frame = _player_shots(season)
+    frame = _player_shot_rows(str(player_id), season)
     metadata = _player_season_metadata(season)
     if frame is None or "PLAYER_ID" not in frame.columns:
         return None, metadata
-    return frame[frame["PLAYER_ID"].astype(str) == str(player_id)].copy(), metadata
+    return frame.copy(), metadata
 
 
 def load_season_shot_snapshot(season: str) -> tuple[pd.DataFrame | None, dict]:

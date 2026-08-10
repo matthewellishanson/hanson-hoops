@@ -105,7 +105,7 @@ The Vite base remains `/hanson-hoops/`, and the application continues to use `Ha
 
 ## NBA data reliability
 
-User-facing comparison reads are cache-first. The compact files under `backend/app/cache/snapshots/` provide player and team profiles from 1946-47 through 2025-26, projected-fit inputs from 1996-97 through 2025-26, and shot locations for the packaged 2023-24 and 2025-26 seasons. Missing shot seasons retain a bounded live fallback. A successful response reports `data_source` so callers can distinguish `live`, `runtime_cache`, and `packaged_snapshot` data.
+User-facing comparison reads are cache-first. The compact files under `backend/app/cache/snapshots/` provide player and team profiles from 1946-47 through 2025-26, projected-fit inputs from 1996-97 through 2025-26, and player shot locations from 1996-97 through 2025-26. The app's league-wide shot-location coverage begins in 1996-97, and the UI labels that limitation explicitly. A successful response reports `data_source` so callers can distinguish `live`, `runtime_cache`, and `packaged_snapshot` data.
 
 Every player and team card owns its season independently, so comparisons can mix player-seasons or team-seasons. Pair-fit requests send both player seasons and normalize each profile against its own season cohort. The same player may be compared across two seasons. Fit requests before 1996-97 return an explicit non-retryable availability error because the required tracking inputs are incomplete. Expected upstream failures return a structured HTTP 502; profile failures are never represented as zero-valued HTTP 200 responses. Shot charts return either real data, a truthful no-data result, or a structured upstream error.
 

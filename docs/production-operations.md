@@ -61,7 +61,8 @@ The comparison snapshots are built from redistributable sources:
   1996-97 onward, where the required box-score fields are available.
 - `shufinskiy/nba_data` at
   `e829d4678be1e075f99e5d41a1c5f97089be446b` (Apache-2.0), using
-  `datasets/shotdetail_2023.tar.xz` and `datasets/shotdetail_2025.tar.xz`.
+  the revision-pinned `datasets/shotdetail_<start-year>.tar.xz` archives for
+  1996 through 2025. These are the available regular-season shot-location years.
 
 After downloading and extracting those files outside the packaged snapshot
 directory, rebuild the compact artifacts from `backend`:
@@ -72,6 +73,29 @@ curl.exe -sS -L -o C:\path\to\PlayerStatistics.csv `
 python -m app.scripts.build_multiseason_snapshots `
   --kaggle-player-stats C:\path\to\PlayerStatistics.csv
 ```
+
+To rebuild player shot snapshots, download and extract the revision-pinned
+archives into a temporary directory outside `app/cache/snapshots`, then run:
+
+```powershell
+$revision = "e829d4678be1e075f99e5d41a1c5f97089be446b"
+$archiveDir = "C:\path\to\shot-archives"
+$inputDir = "C:\path\to\extracted-shot-csvs"
+New-Item -ItemType Directory -Force $archiveDir, $inputDir | Out-Null
+1996..2025 | ForEach-Object {
+  curl.exe -sS -L -o "$archiveDir\shotdetail_$_.tar.xz" `
+    "https://raw.githubusercontent.com/shufinskiy/nba_data/$revision/datasets/shotdetail_$_.tar.xz"
+  tar -xf "$archiveDir\shotdetail_$_.tar.xz" -C $inputDir
+}
+cd C:\path\to\hanson-hoops\backend
+python -m app.scripts.build_shot_snapshots `
+  --input-dir $inputDir
+```
+
+The input directory may contain any subset of `shotdetail_1996.csv` through
+`shotdetail_2025.csv`; only those seasons are rebuilt. The command keeps one
+compressed file per season so API reads can scan a single season and cache only
+the requested player's rows instead of retaining a league-wide table in memory.
 
 The generator excludes non-regular-season rows, aggregates shooting percentages
 from makes and attempts, keeps NBA IDs, writes three consolidated deterministic
@@ -104,6 +128,8 @@ curl.exe -sS -i -H "Origin: https://matthewellishanson.github.io" "https://hanso
 curl.exe -sS -i -H "Origin: https://matthewellishanson.github.io" "https://hanson-hoops.onrender.com/player_bio?player_id=2544&season=2023-24"
 curl.exe -sS -i -H "Origin: https://matthewellishanson.github.io" "https://hanson-hoops.onrender.com/player_profile_stats?player_id=2544&season=2023-24&scale=percentile"
 curl.exe -sS -i -H "Origin: https://matthewellishanson.github.io" "https://hanson-hoops.onrender.com/player_shots?player_id=2544&season=2023-24"
+curl.exe -sS -i -H "Origin: https://matthewellishanson.github.io" "https://hanson-hoops.onrender.com/player_shots?player_id=201951&season=2012-13"
+curl.exe -sS -i -H "Origin: https://matthewellishanson.github.io" "https://hanson-hoops.onrender.com/player_shots?player_id=893&season=1996-97"
 curl.exe -sS -i -H "Origin: https://matthewellishanson.github.io" "https://hanson-hoops.onrender.com/player_profile_stats?player_id=1630162&season=2023-24&scale=percentile"
 curl.exe -sS -i -H "Origin: https://matthewellishanson.github.io" "https://hanson-hoops.onrender.com/player_shots?player_id=203932&season=2023-24"
 curl.exe -sS -i -H "Origin: https://matthewellishanson.github.io" "https://hanson-hoops.onrender.com/fit/player/2544?season=2023-24&min_minutes=300"
