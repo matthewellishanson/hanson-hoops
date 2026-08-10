@@ -155,3 +155,60 @@ def test_current_team_shots_use_packaged_snapshot(client):
     assert body["data_available"] is True
     assert body["summary_for"]["fga"] > 0
     assert body["summary_against"]["fga"] > 0
+
+
+@pytest.mark.parametrize(
+    ("team_id", "season", "name", "points", "shots_for", "shots_against"),
+    [
+        ("1610612755", "2025-26", "Philadelphia 76ers", 115.9, 7404, 7348),
+        ("1610612743", "2009-10", "Denver Nuggets", 106.5, 6678, 6766),
+        ("1610612738", "2007-08", "Boston Celtics", 100.5, 6286, 6341),
+    ],
+)
+def test_reported_team_seasons_use_packaged_bios_profiles_and_shots(
+    client,
+    monkeypatch,
+    team_id,
+    season,
+    name,
+    points,
+    shots_for,
+    shots_against,
+):
+    teams._league_shots_for_season.cache_clear()
+    monkeypatch.setattr(
+        teams,
+        "_fetch_league_shots",
+        lambda *_args: pytest.fail("packaged team shots must not call stats.nba.com"),
+    )
+    query = f"team_id={team_id}&season={season}"
+    bio = client.get(f"/team_bio?{query}", headers=ORIGIN_HEADERS)
+    profile = client.get(
+        f"/team_profile_stats?{query}&scale=percentile&opp_scale=percentile",
+        headers=ORIGIN_HEADERS,
+    )
+    shots = client.get(f"/team_shots?{query}", headers=ORIGIN_HEADERS)
+
+    assert bio.status_code == profile.status_code == shots.status_code == 200
+    assert bio.json()["name"] == name
+    assert bio.json()["data_source"] == "packaged_snapshot"
+    assert profile.json()["data_source"] == "packaged_snapshot"
+    assert profile.json()["raw_points"] == points
+    assert profile.json()["raw_opp_points"] > 0
+    assert shots.json()["data_source"] == "packaged_snapshot"
+    assert shots.json()["data_available"] is True
+    assert shots.json()["summary_for"]["fga"] == shots_for
+    assert shots.json()["summary_against"]["fga"] == shots_against
+    assert all(
+        response.headers["access-control-allow-origin"] == PAGES_ORIGIN
+        for response in (bio, profile, shots)
+    )
+
+
+def test_historical_team_bio_uses_season_name(client):
+    response = client.get(
+        "/team_bio?team_id=1610612760&season=2007-08", headers=ORIGIN_HEADERS
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == "Seattle SuperSonics"
+    assert response.json()["data_source"] == "packaged_snapshot"

@@ -623,13 +623,14 @@ def _fetch_league_shots(season_fmt: str) -> pd.DataFrame:
     )
     return frames[0] if frames else pd.DataFrame()
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=2)
 def _league_shots_for_season(season_fmt: str) -> pd.DataFrame:
     snapshot, _metadata = load_season_shot_snapshot(season_fmt)
     if snapshot is not None:
-        result = snapshot.copy()
-        result.attrs["data_source"] = "packaged_snapshot"
-        return result
+        # Callers select into their own frame before transforming. Reusing this
+        # immutable league table avoids retaining duplicate season-wide copies.
+        snapshot.attrs["data_source"] = "packaged_snapshot"
+        return snapshot
     result = _fetch_league_shots(season_fmt)
     result.attrs["data_source"] = "live"
     return result

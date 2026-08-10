@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import Plot from 'react-plotly.js';
-import { apiErrorMessage, sharedGet } from '../lib/api';
+import { apiErrorMessage, getTeamShots } from '../lib/api';
 
 if (typeof window !== 'undefined' && !window.Plotly) window.Plotly = Plotly;
 
@@ -43,7 +43,7 @@ export default function TeamShotMap({ teamId, season }) {
     (async () => {
       try {
         // This endpoint returns shots_for / shots_against
-        const res = await sharedGet('/team_shots', { team_id: teamId, season });
+        const res = await getTeamShots(teamId, season);
         if (alive) { setData(res.data); setError(''); }
         setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
       } catch (e) {

@@ -38,6 +38,29 @@ export function sharedGet(url, config = {}) {
   return request;
 }
 
+export function getTeamBio(teamId, season) {
+  return sharedGet('/team_bio', {
+    params: { team_id: teamId, season },
+  });
+}
+
+export function getTeamProfileStats(teamId, season) {
+  return sharedGet('/team_profile_stats', {
+    params: {
+      team_id: teamId,
+      season,
+      scale: 'percentile',
+      opp_scale: 'percentile',
+    },
+  });
+}
+
+export function getTeamShots(teamId, season) {
+  return sharedGet('/team_shots', {
+    params: { team_id: teamId, season },
+  });
+}
+
 export function apiErrorMessage(error, fallback) {
   const detail = error?.response?.data?.detail;
   if (typeof detail === 'string' && detail.trim()) return detail;
