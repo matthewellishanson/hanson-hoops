@@ -145,6 +145,9 @@ venv.bak/
 # mkdocs documentation
 /site
 
+# Local-only private audit documents
+docs/*.private.md
+
 # mypy
 .mypy_cache/
 .dmypy.json
