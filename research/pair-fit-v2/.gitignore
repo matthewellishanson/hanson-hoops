@@ -1,0 +1,27 @@
+# Phase 0 research-only cache and raw-output exclusions
+cache/
+raw/
+fixtures/*.json
+fixtures/*.csv
+*.parquet
+*.feather
+.pytest_cache/
+.pytest_tmp/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Coverage output
+.coverage
+coverage.xml
+htmlcov/
+
+# Future local analytical stores and model artifacts
+*.duckdb
+*.duckdb.wal
+*.sqlite
+*.sqlite3
+*.db
+*.joblib
+*.pkl
