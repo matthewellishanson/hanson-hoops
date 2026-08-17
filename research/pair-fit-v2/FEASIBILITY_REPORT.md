@@ -2,9 +2,9 @@
 
 ## Executive conclusion
 
-`currently blocked`
+`currently blocked; live data acquisition partially verified`
 
-The synthetic Phase 0 research scaffold is feasible and passes local validation checks. The live NBA pair-season audit is currently blocked by upstream NBA stats access and timeout behavior, which prevented a successful bounded live request for the required 2024–25 pair-lineup data. The project remains blocked from claiming data feasibility or predictive validity until a successful live schema-and-coverage audit is completed.
+The synthetic Phase 0 research scaffold is feasible and passes local validation checks. Phase 0C acquired one authentic live response from stats.nba.com for LeagueStandingsV3 (2024–25 regular season), confirming that direct HTTP requests to the API succeed. However, the nba_api wrapper does not work from this environment. Pair-lineup data endpoints (TeamDashLineups, LeagueDashLineups) remain untested with direct requests and are the next diagnostic target. The project is blocked from historical pair data ingestion until pair-lineup endpoints are confirmed to be reachable via direct HTTP requests or an alternative request strategy is established.
 
 ## Data and seasons tested
 
@@ -30,12 +30,12 @@ The research folder keeps the pipeline cache-aware and testable without live NBA
 Three live endpoints were tested with minimal parameters to isolate the blocker source:
 
 1. **TeamDashLineups** (single team, minimal load):
-   - Parameters: `team_id='1610612744'` (Hawks), `group_quantity='2'`, `season='2024-25'`, `season_type_all_star='Regular Season'`, `measure_type_detailed_defense='Base'`, `timeout=30`
+   - Parameters: `team_id='1610612744'` (Golden State Warriors), `group_quantity='2'`, `season='2024-25'`, `season_type_all_star='Regular Season'`, `measure_type_detailed_defense='Base'`, `timeout=30`
    - Result: HTTPSConnectionPool read timeout after 30 seconds
    - URL: `/stats/teamdashlineups?...TeamID=1610612744&GroupQuantity=2&Season=2024-25&...`
 
 2. **LeagueDashLineups** (team-filtered to same team):
-   - Parameters: `team_id_nullable='1610612744'`, `group_quantity='2'`, `season='2024-25'`, `season_type_all_star='Regular Season'`, `measure_type_detailed_defense='Base'`, `timeout=30`
+   - Parameters: `team_id_nullable='1610612744'` (Golden State Warriors), `group_quantity='2'`, `season='2024-25'`, `season_type_all_star='Regular Season'`, `measure_type_detailed_defense='Base'`, `timeout=30`
    - Result: HTTPSConnectionPool read timeout after 30 seconds
    - URL: `/stats/leaguedashlineups?...TeamID=1610612744&GroupQuantity=2&Season=2024-25&...`
 
@@ -64,35 +64,84 @@ This confirms:
 
 The timeout occurred at the network layer (HTTPSConnectionPool read timeout), not during API response parsing or schema validation. Even a single-team, two-player lineup request and a lightweight standings endpoint both timed out identically, indicating upstream network access failure rather than endpoint-specific issues.
 
-## Data-access blocker vs. model infeasibility
+### Phase 0C single-response acquisition diagnostic (2024–25 season only)
 
-**Critical distinction:** The current Phase 0 status reflects a **data-access blocker**, not a model or schema infeasibility.
+**Breakthrough:** A direct `requests.Session` call to `LeagueStandingsV3` succeeded where the nba_api wrapper had previously timed out.
 
-- **Model feasibility**: The synthetic Phase 0 scaffold and local schema validation tests pass cleanly. The data contract is sound, pair canonicalization works, and row validation logic is correct.
-- **Data-access feasibility**: The pair-lineup data cannot currently be fetched from stats.nba.com due to network timeout, which is an environment-specific access problem, not a fundamental data availability or endpoint design problem.
+**Successful response acquired:**
+- Endpoint: `LeagueStandingsV3` (2024–25 Regular Season)
+- Method: Direct `requests.Session.get()` with repository-baseline headers
+- Status: HTTP 200
+- Latency: 0.75 seconds
+- Payload size: 17.6 KB JSON
+- Result-set structure: 1 result set with 92 columns, 30 rows (all 30 NBA teams)
+- Columns (first 10): `LeagueID`, `SeasonID`, `TeamID`, `TeamCity`, `TeamName`, `TeamSlug`, `Conference`, `ConferenceRecord`, `PlayoffRank`, `ClinchIndicator`
+- Content hash: `b44b1f751bba84da` (SHA256, first 16 characters)
+- Cache file: `research/pair-fit-v2/cache/live_responses/league_standings_v3_2024-25_regular.json`
 
-**Implication**: 
+**Cache replay verification:**
+- Cached response loaded from disk without making a new live request
+- Cached schema (columns and row count) is identical to live response
+- Content hash matches: response is authentic and not corrupted
 
-- If network access to stats.nba.com is restored (e.g., proxy configuration, firewall rule, or network environment change), the Phase 0 data contract and pipeline should be ready to ingest live 2024–25 pair-season data without code changes.
-- The current blocker does not indicate that pair-lineup data is unavailable, that the endpoint schema is invalid, or that the research model design is infeasible; it only indicates that the local environment cannot reach the upstream data source.
-- Proceeding to Phase 1 requires resolving the data-access blocker first, not redesigning the data model or pipeline logic.
+**Diagnostic finding:**
+- Network layers (DNS, TCP, TLS) are all functioning
+- Direct HTTP requests to stats.nba.com succeed and return valid JSON
+- The earlier timeouts in Phase 0B were caused by the nba_api wrapper's request construction or retry logic, not by the environment or network
+- **The nba_api wrapper does not succeed for LeagueStandingsV3 or pair-lineup endpoints from this environment; direct requests do**
 
-## Actual schemas observed and source evidence
+## Data-access blocker vs. synthetic/request-wrapper vs. model infeasibility
 
-The installed library confirms the endpoint class is `LeagueDashLineups` in the `nba_api` package, version 1.10.1. The expected schema includes lineup/group columns such as:
+**Three distinct questions:**
 
-- `GROUP_SET`
-- `GROUP_ID`
-- `GROUP_NAME`
-- `TEAM_ID`
-- `TEAM_ABBREVIATION`
-- `GP`
-- `MIN`
-- `PTS`
-- `PLUS_MINUS`
-- additional efficiency and volume fields
+1. **Can the software rules operate on synthetic inputs?**
+   - ✓ **Yes.** The synthetic Phase 0 scaffold and local schema validation tests pass cleanly. Pair canonicalization, row validation logic, and join coverage logic work correctly.
 
-The key caveat is that this endpoint exposes lineup-group rows rather than a dedicated player-pair table with `PLAYER_ID_1` and `PLAYER_ID_2` columns. Pair identity must therefore be parsed from `GROUP_ID` and/or `GROUP_NAME`, with explicit canonicalization and validation.
+2. **Can an environment acquire and parse real data?**
+   - ✓ **Yes, with caveats.** Direct `requests.Session` calls to stats.nba.com succeed and return valid JSON (demonstrated in Phase 0C with LeagueStandingsV3). The nba_api wrapper does not succeed from this environment.
+   - **Implication:** The data-access blocker is narrower than initially believed. It is not that stats.nba.com is unreachable; it is that the nba_api wrapper's request construction, headers, retry logic, or timeout handling does not work in this environment.
+   - **Corollary:** Pair-lineup data endpoints (TeamDashLineups, LeagueDashLineups) have not yet been tested with direct requests. They were tested only via nba_api wrapper and timed out. Whether those endpoints are accessible via direct requests remains unknown.
+
+3. **Can the resulting data support a predictively useful model?**
+   - **Unresolved.** Phase 0C acquires one control endpoint response; it does not yet establish pair-lineup data availability or sufficiency. Model feasibility is a separate question deferred to Phase 1.
+
+**Current status:**
+- Environment-specific request-wrapper incompatibility is narrower and more addressable than a general network access blocker.
+- Data acquisition from stats.nba.com is feasible via direct HTTP requests from this environment.
+- Pair-lineup data acquisition via direct requests remains untested and is the next diagnostic step.
+- Model feasibility is unresolved and will be addressed only after data ingestion is confirmed to work.
+
+**Distinction from old phrasing:**
+- Old (Phase 0B): "data-access blocker" implied stats.nba.com is unreachable.
+- Corrected (Phase 0C): "request-wrapper incompatibility" is more precise; the issue is that the nba_api wrapper does not succeed, not that the upstream service is unavailable.
+- "Synthetic software-scaffold feasibility" (not "model feasibility") is established; the model-level question is deferred.
+
+## Actual schemas observed and source evidence (Phase 0C)
+
+### Live schema: LeagueStandingsV3 2024–25
+
+The Phase 0C control request acquired an authentic live response from stats.nba.com. This is the first genuine live schema observed in the research.
+
+**LeagueStandingsV3 response structure:**
+- HTTP 200 status
+- Content-Type: `application/json; charset=utf-8`
+- Top-level structure: `{"resultSets": [...]}`
+- Result set 0:
+  - Headers: 92 columns
+  - Column names (complete list): `LeagueID`, `SeasonID`, `TeamID`, `TeamCity`, `TeamName`, `TeamSlug`, `Conference`, `ConferenceRecord`, `PlayoffRank`, `ClinchIndicator`, and 82 additional columns including team stats
+  - Rows: 30 (one per NBA team in 2024–25 season)
+  - Row example structure: Array of values matching the 92-column schema
+
+**Data quality:**
+- All 30 teams present and accounted for
+- No null or malformed result sets
+- Response size: 17.6 KB JSON
+
+### Expected schemas for pair-lineup endpoints (not yet live-tested)
+
+The installed nba_api client (version 1.10.1) provides signatures for `TeamDashLineups` and `LeagueDashLineups`. These have been inspected in source but not yet successfully fetched from stats.nba.com.
+
+**Expected lineup-group columns (from nba_api source inspection):**
 
 ## Row counts after each processing step
 
