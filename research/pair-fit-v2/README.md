@@ -8,7 +8,7 @@ This folder contains the Phase 0 feasibility scaffold for the Hanson Hoops pair-
 
 currently blocked
 
-The synthetic scaffold is valid, but the live 2024–25 pair-season audit remained blocked by upstream NBA stats access timeouts during the bounded live request attempt.
+The synthetic scaffold is valid, and the Phase 0B bounded live diagnostic isolated the blocker source: general `stats.nba.com` access timeout from the current local environment (not endpoint-specific, not pair-lineup-specific, not request-size-specific). All three tested endpoints—TeamDashLineups, LeagueDashLineups, and LeagueStandingsV3—timed out at the network layer with HTTPSConnectionPool read timeout after 30 seconds. The live 2024–25 pair-season audit remains blocked by this data-access issue, which is environment-specific and separate from model or schema feasibility.
 
 ## Status
 

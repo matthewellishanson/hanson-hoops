@@ -25,6 +25,58 @@ The Phase 0 pipeline is designed to test the following request patterns:
 
 The research folder keeps the pipeline cache-aware and testable without live NBA calls. The live endpoint schema and reliability were audited via the installed `nba_api` source and the repository's HTTP/session reliability layer.
 
+### Phase 0B bounded live diagnostic (2024–25 season only)
+
+Three live endpoints were tested with minimal parameters to isolate the blocker source:
+
+1. **TeamDashLineups** (single team, minimal load):
+   - Parameters: `team_id='1610612744'` (Hawks), `group_quantity='2'`, `season='2024-25'`, `season_type_all_star='Regular Season'`, `measure_type_detailed_defense='Base'`, `timeout=30`
+   - Result: HTTPSConnectionPool read timeout after 30 seconds
+   - URL: `/stats/teamdashlineups?...TeamID=1610612744&GroupQuantity=2&Season=2024-25&...`
+
+2. **LeagueDashLineups** (team-filtered to same team):
+   - Parameters: `team_id_nullable='1610612744'`, `group_quantity='2'`, `season='2024-25'`, `season_type_all_star='Regular Season'`, `measure_type_detailed_defense='Base'`, `timeout=30`
+   - Result: HTTPSConnectionPool read timeout after 30 seconds
+   - URL: `/stats/leaguedashlineups?...TeamID=1610612744&GroupQuantity=2&Season=2024-25&...`
+
+3. **LeagueStandingsV3** (lightweight control endpoint):
+   - Parameters: `season='2024-25'`, `season_type='Regular Season'`, `timeout=30`
+   - Result: HTTPSConnectionPool read timeout after 30 seconds
+   - URL: `/stats/leaguestandingsv3?Season=2024-25&SeasonType=Regular+Season&...`
+
+### Blocker classification
+
+All three requests failed with identical network-layer errors:
+
+```
+ConnectionError: HTTPSConnectionPool(host='stats.nba.com', port=443): 
+Max retries exceeded with url: ... 
+(Caused by ReadTimeoutError("HTTPSConnectionPool(host='stats.nba.com', port=443): 
+Read timed out. (read timeout=30)"))
+```
+
+This confirms:
+
+- ✗ NOT a size/complexity issue with league-wide pair-season requests
+- ✗ NOT specific to LeagueDashLineups endpoint
+- ✗ NOT specific to pair-lineup endpoints generally
+- ✓ **Blocker source: General `stats.nba.com` access timeout from current local environment**
+
+The timeout occurred at the network layer (HTTPSConnectionPool read timeout), not during API response parsing or schema validation. Even a single-team, two-player lineup request and a lightweight standings endpoint both timed out identically, indicating upstream network access failure rather than endpoint-specific issues.
+
+## Data-access blocker vs. model infeasibility
+
+**Critical distinction:** The current Phase 0 status reflects a **data-access blocker**, not a model or schema infeasibility.
+
+- **Model feasibility**: The synthetic Phase 0 scaffold and local schema validation tests pass cleanly. The data contract is sound, pair canonicalization works, and row validation logic is correct.
+- **Data-access feasibility**: The pair-lineup data cannot currently be fetched from stats.nba.com due to network timeout, which is an environment-specific access problem, not a fundamental data availability or endpoint design problem.
+
+**Implication**: 
+
+- If network access to stats.nba.com is restored (e.g., proxy configuration, firewall rule, or network environment change), the Phase 0 data contract and pipeline should be ready to ingest live 2024–25 pair-season data without code changes.
+- The current blocker does not indicate that pair-lineup data is unavailable, that the endpoint schema is invalid, or that the research model design is infeasible; it only indicates that the local environment cannot reach the upstream data source.
+- Proceeding to Phase 1 requires resolving the data-access blocker first, not redesigning the data model or pipeline logic.
+
 ## Actual schemas observed and source evidence
 
 The installed library confirms the endpoint class is `LeagueDashLineups` in the `nba_api` package, version 1.10.1. The expected schema includes lineup/group columns such as:

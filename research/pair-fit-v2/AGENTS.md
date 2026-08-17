@@ -18,3 +18,11 @@
 - Explain every modeling decision in plain language.
 - Do not claim that an interaction effect is validated unless it improves held-out predictions.
 - Run relevant tests before completing a task.
+
+## Git safety
+
+- Do not commit, push, merge, rebase, switch branches, delete branches, or rewrite Git history unless explicitly authorized.
+- Do not stage unrelated user changes.
+- At handoff, report all modified and untracked files.
+- Run the specified tests and review the diff before declaring work complete.
+- Never commit raw API caches, generated datasets, credentials, environment files, proxy details or secrets.
