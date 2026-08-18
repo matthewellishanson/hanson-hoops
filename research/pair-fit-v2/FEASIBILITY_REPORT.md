@@ -2,9 +2,19 @@
 
 ## Executive conclusion
 
-`currently blocked; live data acquisition partially verified`
+`live Base pair-lineup acquisition verified; rate-target and prior-player join feasibility remain pending`
 
-The synthetic Phase 0 research scaffold is feasible and passes local validation checks. Phase 0C acquired one authentic live response from stats.nba.com for LeagueStandingsV3 (2024–25 regular season), confirming that direct HTTP requests to the API succeed. However, the nba_api wrapper does not work from this environment. Pair-lineup data endpoints (TeamDashLineups, LeagueDashLineups) remain untested with direct requests and are the next diagnostic target. The project is blocked from historical pair data ingestion until pair-lineup endpoints are confirmed to be reachable via direct HTTP requests or an alternative request strategy is established.
+Phase 0 progress summary:
+
+1. **Synthetic software-scaffold feasibility**: ✓ Verified (tests pass, pair canonicalization logic works)
+2. **Live control-endpoint acquisition**: ✓ Verified (LeagueStandingsV3 2024–25 acquired and cached)
+3. **One-team Base pair-lineup acquisition**: ✓ Verified (TeamDashLineups Warriors 2024–25 Base acquired, 183 rows parsed)
+4. **Pair structure parsing**: ✓ Verified (GROUP_ID parsing, two-player extraction, canonical deduplication work)
+5. **Rate-target availability**: ⏳ Pending (PLUS_MINUS is cumulative differential, not a rate; Advanced measure required)
+6. **Prior-player join feasibility**: ⏳ Pending (no prior-season stats acquired or joined yet)
+7. **Multi-team and multi-season feasibility**: ⏳ Unverified (one Warriors smoke test; 30-team scale unknown)
+
+The direct `requests.Session` pattern succeeds where the nba_api wrapper times out. One authentic TeamDashLineups response has been cached and replayed. The project requires Phase 0E (prior-player join audit) and Advanced measure validation before Phase 1 modeling work can begin.
 
 ## Data and seasons tested
 
@@ -90,6 +100,96 @@ The timeout occurred at the network layer (HTTPSConnectionPool read timeout), no
 - The earlier timeouts in Phase 0B were caused by the nba_api wrapper's request construction or retry logic, not by the environment or network
 - **The nba_api wrapper does not succeed for LeagueStandingsV3 or pair-lineup endpoints from this environment; direct requests do**
 
+### Phase 0D direct pair-lineup acquisition diagnostic (2024–25 season only)
+
+**Successful pair-lineup response acquired:**
+- Endpoint: `TeamDashLineups`
+- Team: Golden State Warriors (team_id='1610612744')
+- Season: 2024–25 Regular Season
+- Group quantity: 2 (two-player lineups)
+- Measure type: Base
+- Method: Direct `requests.Session.get()` with same canonical headers as Phase 0C
+- Status: HTTP 200
+- Latency: 2.14 seconds
+- Payload size: 58.7 KB JSON
+- Result-set structure: 2 result sets
+  - Overall: 57 columns, 1 row
+  - Lineups: 56 columns, 183 rows
+- Content hash: `71e194d4338e09b0` (SHA256, first 16 characters)
+- Cache files:
+  - `team_dash_lineups_1610612744_2024-25_base.json` (52.4 KB)
+  - `team_dash_lineups_1610612744_2024-25_base_metadata.json`
+
+**Lineups result set columns (56 total):**
+- Pair identity: `GROUP_SET`, `GROUP_ID` (format: `-PLAYER_ID_1-PLAYER_ID_2-`), `GROUP_NAME` (e.g., "S. Curry - D. Green")
+- Performance: `GP`, `W`, `L`, `W_PCT`, `MIN`, `FGM`, `FGA`, `FG_PCT`, `FG3M`, `FG3A`, `FG3_PCT`, `FTM`, `FTA`, `FT_PCT`
+- Rebounding: `OREB`, `DREB`, `REB`
+- Playmaking: `AST`, `TOV`
+- Defense: `STL`, `BLK`, `BLKA`, `PF`, `PFD`
+- Scoring: `PTS`
+- **Target efficiency**: `PLUS_MINUS` (cumulative on-court point differential)
+- Ranking: 22 columns of `_RANK` fields
+- Additional: `SUM_TIME_PLAYED`
+
+**Critical finding: Base measure provides cumulative differential, not rate-based efficiency**
+- ORTG: Not returned (would require Advanced measure)
+- DRTG: Not returned (would require Advanced measure)
+- NET_RTG: Not returned (would require Advanced measure)
+- POSS (Possessions): Not returned (would require Advanced measure)
+- Available: `PLUS_MINUS` (cumulative on-court team point differential during pair's shared minutes)
+  - Example: Curry–Green recorded +239 over 1419.1 minutes
+  - This is a cumulative total, not a per-100-possession rate
+  - Embeds playing-time opportunity in the outcome
+  - Not suitable as-is for rate-based modeling without normalization
+- **Rate-target validation**: Requires Advanced measure fetch (OFF_RATING, DEF_RATING, NET_RATING)
+
+**Pair data validation (Warriors Base response):**
+- Total rows: 183
+- Valid pairs (two distinct players, GP > 0, MIN > 0): 183
+- Zero-minute pairs: 0
+- Zero-game pairs: 0
+- Malformed pair identifiers: 0
+- Duplicate canonical pairs after unordered deduplication: 0
+- **Data quality observation**: No structural failures detected among the 183 rows in this one Warriors Base response under the current validation checks. This smoke-test result does not establish league-wide data quality, minimum-sample reliability for modeling, target validity, or cross-measure compatibility.
+
+**Sample valid pairs (Warriors 2024–25):**
+1. Curry-Green: 60 games, 1419.1 minutes, +239 net
+2. Curry-Hield: 70 games, 968.5 minutes, +224 net
+3. Green-Podziemski: 51 games, 902.2 minutes, +93 net
+4. Green-Moody: 56 games, 893.1 minutes, +185 net
+5. Curry-Wiggins: 37 games, 883.4 minutes, +10 net
+
+**Cache replay verification:**
+- Cached response loaded from disk without making a new live request
+- Cached schema (columns and row count) is identical to live response
+- Content hash matches: response is authentic and not corrupted
+
+**Implementation artifact: direct_fetch.py**
+- Created reusable research-only module `src/pair_fit_v2/direct_fetch.py`
+- Exports: `create_research_session()`, `fetch_team_dash_lineups()`, `fetch_league_dash_lineups()`, `cache_response()`, `load_cached_response()`
+- Canonical headers: Mozilla/5.0 user-agent, nba.com referer, gzip/deflate encoding
+- Timeout: Explicit 30 seconds, no unbounded retries
+- Serves as baseline for Phase 0E and Phase 1 acquisition
+
+### Request-path classification: narrowed
+
+Previous (Phase 0B/0C): "stats.nba.com access is blocked"
+
+Current (Phase 0D): "The currently configured nba_api request path times out, while the direct requests.Session path succeeds."
+
+**Wrapper observation (unresolved root cause):**
+The nba_api wrapper with default configuration does not complete pair-lineup requests from this environment, while an equivalent direct requests.Session request completes in 2.14 seconds. Possible contributing factors:
+- Wrapper's retry/exponential-backoff logic
+- Session object or HTTP adapter configuration
+- Header propagation or request construction through wrapper layers
+- Timeout handling in wrapper vs. direct requests
+- Environment-specific proxy or firewall interaction
+
+Without repeated live testing, the exact root cause remains unresolved.
+
+**Implementation approach:**
+The direct `requests.Session` pattern is proven to work for pair-lineup acquisition. It will be the acquisition method for pair-fit v2 Phase 1 and forward. Historical wrapper compatibility investigation is a separate, non-blocking task.
+
 ## Data-access blocker vs. synthetic/request-wrapper vs. model infeasibility
 
 **Three distinct questions:**
@@ -116,32 +216,67 @@ The timeout occurred at the network layer (HTTPSConnectionPool read timeout), no
 - Corrected (Phase 0C): "request-wrapper incompatibility" is more precise; the issue is that the nba_api wrapper does not succeed, not that the upstream service is unavailable.
 - "Synthetic software-scaffold feasibility" (not "model feasibility") is established; the model-level question is deferred.
 
-## Actual schemas observed and source evidence (Phase 0C)
+## Actual schemas observed and source evidence (Phase 0C-0D)
 
-### Live schema: LeagueStandingsV3 2024–25
+### Phase 0C live schema: LeagueStandingsV3 2024–25
 
-The Phase 0C control request acquired an authentic live response from stats.nba.com. This is the first genuine live schema observed in the research.
+The Phase 0C control request acquired an authentic live response from stats.nba.com.
 
 **LeagueStandingsV3 response structure:**
 - HTTP 200 status
 - Content-Type: `application/json; charset=utf-8`
 - Top-level structure: `{"resultSets": [...]}`
 - Result set 0:
+  - Name: "Standings"
   - Headers: 92 columns
-  - Column names (complete list): `LeagueID`, `SeasonID`, `TeamID`, `TeamCity`, `TeamName`, `TeamSlug`, `Conference`, `ConferenceRecord`, `PlayoffRank`, `ClinchIndicator`, and 82 additional columns including team stats
   - Rows: 30 (one per NBA team in 2024–25 season)
-  - Row example structure: Array of values matching the 92-column schema
 
-**Data quality:**
-- All 30 teams present and accounted for
-- No null or malformed result sets
-- Response size: 17.6 KB JSON
+### Phase 0D live schema: TeamDashLineups Warriors 2024–25 Base
 
-### Expected schemas for pair-lineup endpoints (not yet live-tested)
+The Phase 0D primary request acquired an authentic live response for one team and measure type.
 
-The installed nba_api client (version 1.10.1) provides signatures for `TeamDashLineups` and `LeagueDashLineups`. These have been inspected in source but not yet successfully fetched from stats.nba.com.
+**TeamDashLineups response structure:**
+- HTTP 200 status
+- Content-Type: `application/json; charset=utf-8`
+- Top-level structure: `{"resultSets": [...]}`
+- Result set 0 (Overall): 57 columns, 1 row (team-level summary)
+- Result set 1 (Lineups): 56 columns, 183 rows (two-player lineup records)
 
-**Expected lineup-group columns (from nba_api source inspection):**
+**Lineups result set columns (Base measure):**
+1. Pair identity: GROUP_SET, GROUP_ID, GROUP_NAME
+2. Performance metrics: GP, W, L, W_PCT, MIN, FGM, FGA, FG_PCT, FG3M, FG3A, FG3_PCT, FTM, FTA, FT_PCT
+3. Rebounding: OREB, DREB, REB
+4. Playmaking: AST, TOV
+5. Defense: STL, BLK, BLKA, PF, PFD
+6. Scoring: PTS
+7. On-court differential: PLUS_MINUS (cumulative, not rate)
+8. Rankings: 22 columns with _RANK suffix
+9. Time tracked: SUM_TIME_PLAYED
+
+**Key schemas not present in Base measure:**
+- OFF_RATING (offensive efficiency rate)
+- DEF_RATING (defensive efficiency rate)
+- NET_RATING (net efficiency rate)
+- POSS (possessions)
+- Advanced and Four Factors measures require separate requests
+
+### Reconciled target field assessment
+
+**Observed in Base measure:**
+- `PLUS_MINUS`: Cumulative on-court vs off-court point differential
+  - Example: Curry–Green pair, 60 games, 1419.1 minutes, PLUS_MINUS = +239
+  - Interpretation: Total points scored minus points allowed while this pair was on court
+  - Statistical nature: Cumulative total, confounded with playing time
+  - Modeling suitability: Requires normalization for rate-based analysis
+
+**Not observed in Base measure (Advanced required):**
+- `OFF_RATING`: Points per 100 possessions scored
+- `DEF_RATING`: Points per 100 possessions allowed
+- `NET_RATING`: Offensive rating minus defensive rating
+- Possessions data
+
+**Conclusion on targets:**
+Rate-target feasibility remains pending. Direct Advanced measure acquisition is required to validate whether OFF_RATING, DEF_RATING, and NET_RATING are available and suitable for rate-based pair-fit modeling.
 
 ## Row counts after each processing step
 
@@ -252,30 +387,55 @@ The following are explicitly provisional or unresolved:
 - whether possession derivation is allowed without source validation
 - pair-level team context standardization
 
-## Recommended changes before multi-season ingestion
+## Recommended steps before Phase 1 modeling
 
-Before moving to full historical ingestion, the project should:
+Before proceeding to Phase 1 historical ingestion and model work, the project should complete:
 
-1. lock the canonical pair-identity rule
-2. decide and document the valid data-quality filters
-3. confirm the target-returning endpoint schema with mock or live fixtures
-4. draft the prior-player join strategy with stable IDs only
-5. decide how to treat rookies, trades, and sparse shared-minute records
-6. require a clear holdout split with 2025–26 reserved as the untouched test season
+1. **Phase 0E: Prior-player join audit**
+   - Acquire one prior-season (2023–24) player-level stats response
+   - Validate join keys and player ID stability
+   - Quantify prior-player coverage for the Warriors pairs
+
+2. **Advanced measure response validation**
+   - Acquire one Warriors Advanced measure response (same team, 2024–25, GroupQuantity=2)
+   - Validate OFF_RATING, DEF_RATING, NET_RATING, POSS availability
+   - Confirm cross-measure join compatibility between Base and Advanced
+
+3. **Multi-team feasibility smoke test**
+   - Acquire Base pair-lineup data for 2–3 additional teams
+   - Verify response structure consistency and data quality across teams
+   - Estimate total historical data volume for 30-team, multi-season ingestion
+
+4. **Data pipeline and schema validation**
+   - Lock the canonical pair-identity rule
+   - Document data-quality filters and validation checks
+   - Establish caching and immutability guardrails
+   - Design the prior-player join strategy with stable IDs
 
 ## Phase 1 go/no-go criteria
 
-Proceed to Phase 1 only if all of the following are true:
+Proceed to Phase 1 only if all of the following are demonstrated:
 
-- pair identity is canonicalized and deduplicated reliably
-- target fields are available or defensibly derived
-- prior-player coverage is high enough to support the intended historical expansion
-- no same-season leakage is present in the feature pipeline
-- the cache layer and schema-validation tests pass without live network dependence
-- the feasibility report clearly documents remaining gaps and assumptions
+- Pair identity parsing and canonicalization are reliable and tested
+- Base measure data structures are consistent across multiple teams and seasons
+- Prior-player feature records are available and joinable with stable IDs
+- Rate-target fields (OFF_RATING, DEF_RATING, NET_RATING) are confirmed available in Advanced measure
+- No same-season leakage is present in the feature pipeline
+- Cache layer and schema-validation tests pass without live network dependence
+- The feasibility report documents remaining gaps, data-quality limitations and untested assumptions
 
-If these checks fail, the project should remain in research-only feasibility work rather than moving to model selection.
+If these checks are not satisfied, the project should remain in Phase 0E diagnostics until the blockers are resolved.
+
+If Advanced measure is unavailable or rate-target feasibility cannot be established, the project may explore alternative approaches (cumulative-differential modeling, semi-supervised learning on rank fields, or outcome-only studies) but should document these departures explicitly.
 
 ## Final note
 
-This report does not claim that interaction effects are predictable or that the complete historical dataset is sufficient. It only concludes whether the Phase 0 data contract and pipeline are feasible enough to justify the next research step.
+Phase 0 research has established that the pair-fit v2 software-scaffold can be built, that live pair-lineup data is acquirable from stats.nba.com via direct HTTP requests, and that pair structure (identity, deduplication, validation) works correctly on observed Warriors data.
+
+Phase 0 has **not yet** established:
+- Rate-target field availability (requires Advanced measure)
+- Prior-player historical feature coverage (requires 2023–24 acquisition and join)
+- Multi-team and multi-season data consistency
+- Predictive model feasibility
+
+This report does not claim that rate-based efficiency targets are available, that cross-measure joins are compatible, that prior-player data is sufficient, or that a predictive model will succeed. Those questions require Phase 0E (prior-player audit) and Phase 1 (Advanced measure validation and multi-team ingestion) work.

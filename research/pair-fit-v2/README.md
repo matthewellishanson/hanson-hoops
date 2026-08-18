@@ -6,9 +6,9 @@ This folder contains the Phase 0 feasibility scaffold for the Hanson Hoops pair-
 
 ## Final Phase 0 status
 
-currently blocked
+live Base pair-lineup acquisition verified; rate-target and prior-player feasibility pending
 
-The synthetic scaffold is valid, and the Phase 0B bounded live diagnostic isolated the blocker source: general `stats.nba.com` access timeout from the current local environment (not endpoint-specific, not pair-lineup-specific, not request-size-specific). All three tested endpoints—TeamDashLineups, LeagueDashLineups, and LeagueStandingsV3—timed out at the network layer with HTTPSConnectionPool read timeout after 30 seconds. The live 2024–25 pair-season audit remains blocked by this data-access issue, which is environment-specific and separate from model or schema feasibility.
+Phase 0D acquired one authentic 2024-25 Warriors Base pair-lineup response (183 two-player pairs) via direct requests.Session. PLUS_MINUS field is cumulative on-court differential, not a per-possession rate; Advanced measure required for rate-target validation. Prior-player join audit (Phase 0E) remains pending. Direct requests.Session pattern proven; nba_api wrapper times out but is not required.
 
 ## Status
 
@@ -40,3 +40,4 @@ python -c "import sys; sys.path.insert(0, r'.\src'); from pair_fit_v2.schema imp
 - Keep all raw API responses and caches immutable where possible.
 - Use prior-season player data only, not same-season target stats.
 - Preserve the canonical pair identity rule: A+B and B+A are not distinct records.
+- Advanced rate-target validation (Phase 0E) and the subsequent prior-player join audit (Phase 0F) remain pending.
