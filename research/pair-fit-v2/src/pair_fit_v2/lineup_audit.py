@@ -75,6 +75,18 @@ def _numeric(value: Any) -> float | None:
     return numeric_value if isfinite(numeric_value) else None
 
 
+def _canonical_observation_key(
+    row: dict[str, Any],
+) -> tuple[str, str, tuple[str, str]] | None:
+    """Return the canonical season/team/pair identity attached to a lineup row."""
+    season = row.get("season")
+    team_id = row.get("team_id")
+    pair_key = row.get("pair_key")
+    if season is None or team_id is None or pair_key is None:
+        return None
+    return (str(season), str(team_id), pair_key)
+
+
 def _field_summary(rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
     values = [_numeric(row.get(field)) for row in rows]
     numeric_values = [value for value in values if value is not None]
@@ -155,25 +167,35 @@ def identify_zero_or_missing_possession_rows(
     endpoint returned, not a meaningful rate: rates are undefined without possessions.
     Rows are reported, never deleted or converted to missing.
     """
-    base_by_group_id = {row.get("GROUP_ID"): row for row in (base_rows or [])}
+    base_by_observation = {
+        key: row
+        for row in (base_rows or [])
+        if (key := _canonical_observation_key(row)) is not None
+    }
     flagged = []
     for row in advanced_rows:
         poss = _numeric(row.get("POSS"))
         if poss is not None and poss > 0:
             continue
-        base_row = base_by_group_id.get(row.get("GROUP_ID"))
+        observation_key = _canonical_observation_key(row)
+        base_row = base_by_observation.get(observation_key)
         flagged.append(
             {
+                "season": row.get("season"),
                 "team_id": row.get("team_id"),
-                "pair_key": row.get("pair_key"),
+                "canonical_pair_ids": row.get("pair_key"),
+                "group_id": row.get("GROUP_ID"),
                 "group_name": row.get("GROUP_NAME"),
-                "poss": poss,
+                "poss": row.get("POSS"),
                 "base_min": base_row.get("MIN") if base_row else None,
                 "advanced_min": row.get("MIN"),
                 "off_rating": row.get("OFF_RATING"),
                 "def_rating": row.get("DEF_RATING"),
                 "net_rating": row.get("NET_RATING"),
-                "numeric_rating_returned": row.get("NET_RATING") is not None,
+                "numeric_ratings_returned": all(
+                    _numeric(row.get(field)) is not None
+                    for field in ("OFF_RATING", "DEF_RATING", "NET_RATING")
+                ),
                 "eligible_for_possession_based_rate_target": False,
             }
         )
@@ -188,10 +210,9 @@ def join_pair_measures(
         index: dict[tuple[str, str, tuple[str, str]], dict[str, Any]] = {}
         duplicates = 0
         for row in rows:
-            pair_key = row.get("pair_key")
-            if pair_key is None:
+            key = _canonical_observation_key(row)
+            if key is None:
                 continue
-            key = (str(row["season"]), str(row["team_id"]), pair_key)
             if key in index:
                 duplicates += 1
             else:

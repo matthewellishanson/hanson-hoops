@@ -17,6 +17,8 @@ Canonical pair identity should satisfy:
 - duplicate pair rows are rejected or flagged explicitly during validation
 - the pair identity is independent of player ordering in the source data
 
+The cache-audit schema fingerprint is separate from row volume. It consists of the result-set name, ordered column list, and column count. Row count is data volume, not schema identity.
+
 ## Target definition
 
 The observed 2024-25 TeamDashLineups Advanced response directly provides team offensive rating (`OFF_RATING`) and defensive rating (`DEF_RATING`) while both players share the court.
@@ -25,7 +27,7 @@ The provisional primary rate target is `NET_RATING`, with the expected relations
 
 - `NET_RATING` = `OFF_RATING` - `DEF_RATING`, subject to displayed rounding
 
-This is a one-team target-availability finding, not evidence of predictive validity. The Base-measure `PLUS_MINUS` field is a cumulative on-court team point differential; it is neither net rating nor an on/off statistic and is not substituted for the rate target.
+This target-availability relationship was observed across all four Phase 1A pilot teams; it is not evidence of predictive validity. The Base-measure `PLUS_MINUS` field is a cumulative on-court team point differential; it is neither net rating nor an on/off statistic and is not substituted for the rate target.
 
 The central research question is whether a supervised projection can estimate expected shared-court team performance for a selected pair, given prior-period player capability and standardized context.
 
@@ -52,7 +54,9 @@ The target-season pair performance is predicted using information available befo
 
 ## Reliability and sample-size fields
 
-Minutes and possessions are treated as reliability and sample-size information, not as player-quality features.
+Minutes and possessions are treated as reliability and sample-size information, not as player-quality features. Base `MIN` is the shared-minute exposure field because it preserves fractional precision; Advanced `POSS` is possession exposure. Advanced `MIN` is retained as returned but is not assumed interchangeable with Base `MIN` at sparse exposure.
+
+Rows with missing `POSS` or `POSS <= 0` are retained unchanged for audit but are ineligible for a possession-based rate target, even if the endpoint returns numeric offensive, defensive, or net ratings. Phase 1A does not select a positive minimum-minute or minimum-possession threshold.
 
 Usage is treated as an offensive-role and possession-ending-burden feature, not as inherent player quality or a reliability metric.
 
@@ -72,7 +76,7 @@ Phase 0 should initially exclude or explicitly flag:
 - rookies, unless justified by a special exception
 - same-season target features used as prior features
 - unverified possession estimates
-- pair rows with zero or unusable shared minutes
+- pair rows without eligible possession exposure (`POSS` missing or `POSS <= 0`) from possession-based rate-target training, while retaining the rows and endpoint values for audit
 - malformed or duplicate pair identifiers
 - rows without stable ID resolution
 
@@ -93,9 +97,11 @@ The intended future historical split is:
 - untouched test target: 2025–26
 - prior player data beginning in 2020–21
 
+Validation must be time-ordered or rolling-origin, with 2025-26 preserved as the untouched final test season. A random pair-row split is explicitly rejected because overlapping players and pairs violate row independence and could cross split boundaries.
+
 This document does not claim that the final model is valid or that interaction effects are predictable. The purpose of Phase 0 is feasibility and data-contract validation only.
 
-The current research status is: Phase 1A bounded multi-team pilot complete. Base and Advanced schemas, canonical pair parsing, and Base-to-Advanced joins generalize across four teams (Golden State Warriors, Boston Celtics, Washington Wizards, Brooklyn Nets; 736 combined pairs). Prior-player coverage does **not** generalize uniformly: pair-level complete-prior coverage ranges from 57.2% (Washington Wizards, young/rebuilding roster) to 81.6% (Boston Celtics, stable roster), combined 68.9% (507/736). Full details, exact numerators/denominators, and the Phase 1B recommendation are in `PHASE1A_PILOT_REPORT.md`. Multi-season consistency and predictive feasibility remain unverified.
+The current research status is: Phase 1A bounded multi-team pilot complete. Base and Advanced schemas, canonical pair parsing, and Base-to-Advanced joins are consistent across four teams (Golden State Warriors, Boston Celtics, Washington Wizards, Brooklyn Nets; 736 combined pairs). Pair-level complete-prior coverage ranges from 57.2% (Washington Wizards) to 81.6% (Boston Celtics), combined 68.9% (507/736). The pattern is consistent with the deliberately selected roster profiles, but this four-team sample does not establish roster type as the cause or prove a league-wide relationship. Full details, exact numerators/denominators, and the bounded Phase 1B architecture/ingestion-design recommendation are in `PHASE1A_PILOT_REPORT.md`. Multi-season consistency and predictive feasibility remain unverified, and model training and historical expansion remain prohibited pending approval of the exposure policy, missing-history treatment, and validation design.
 
 ## Prior-player join audit (Phase 0F)
 
@@ -104,14 +110,14 @@ One live 2023-24 `LeagueDashPlayerStats` response (Base measure, Per100Possessio
 - Stable-ID audit: 572 raw rows, 572 unique `PLAYER_ID` values, 0 duplicate IDs, 0 missing/malformed IDs. The endpoint appears to return one aggregate row per player, including 78 players with `TEAM_COUNT > 1` (traded during the season). One traded player (Buddy Hield) shows `GP=84`; this is a valid combined-team total (a mid-season trade can push combined games above 82 because the two teams may have played a different number of games at the trade date), not an anomaly, and it is not capped or corrected.
 - Player-level coverage: 19 of 23 unique Warriors pair-population player IDs (82.6%) have a 2023-24 record. 4 do not: they are described only as having "no 2023-24 LeagueDashPlayerStats record," not labeled rookies or errors without further evidence.
 - Pair-level coverage: 143 of 183 pairs (78.1%) have both players matched; 29 have only player 1, 8 have only player 2, 3 have neither.
-- Exposure-weighted diagnostic coverage: complete-prior pairs sum to 36,469.0 of 39,458.0 shared minutes (92.4%) and 77,640 of 84,005 possessions (92.4%); incomplete-prior pairs hold the remaining 2,989.0 minutes and 6,365 possessions (7.6% each). These are overlapping diagnostic sums recalculated from the cached pair table, not unique team totals, and are not used as model features.
+- Exposure-weighted diagnostic coverage under the Phase 1A convention: complete-prior pairs sum to 36,469.44 of 39,460.00 Base shared minutes (92.4%) and 77,640 of 84,005 Advanced possessions (92.4%); incomplete-prior pairs hold the remaining 2,990.56 Base minutes and 6,365 Advanced possessions. These are overlapping diagnostic sums recalculated from the cached pair tables, not unique team totals, and are not used as model features.
 - Observed `MIN` semantics under `Per100Possessions`: it is not season-total minutes; it is minutes reported on the same per-100-possession normalization as other rate fields, and happened to resemble typical per-game averages for this season's pace. It must not be used as the prior player's season-total eligibility or reliability measure. A later ingestion phase will need a validated `Totals`-per-mode response, or another trustworthy season-total-minutes field. Phase 0F establishes join coverage, not the final prior-player reliability contract.
 
-Missing-history policy: a provisional Phase 1 baseline policy has been adopted (see below), subject to reevaluation after the multi-team pilot.
+Missing-history policy: the uniform Phase 1 baseline policy below was exercised across the four-team pilot and remains subject to approval before modeling.
 
 This audit does not establish multi-team coverage, does not select a final feature set, and does not train or validate a model.
 
-## Provisional missing-history policy (Phase 1 baseline, reevaluated after Phase 1A)
+## Uniform missing-history policy (Phase 1 baseline)
 
 This baseline policy was applied unchanged in the Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`); it is still not a final modeling decision:
 
@@ -119,10 +125,10 @@ This baseline policy was applied unchanged in the Phase 1A multi-team pilot (see
 2. Add a categorical prior-history status per pair: `complete`, `one_missing`, or `both_missing`.
 3. Use `complete`-status pairs for the primary baseline model.
 4. Do not zero-impute missing prior NBA statistics.
-5. Retain `one_missing`/`both_missing` pairs for coverage analysis and a possible later no-history fallback.
+5. Retain `one_missing`/`both_missing` pairs for coverage analysis and later evaluation of one universal no-history fallback.
 6. The no-history fallback model is not yet defined or implemented.
 
-Phase 1A confirmed this policy's mechanics work across four teams, but also found that the `complete`-status share varies materially by roster type (57.2%-81.6% across the pilot teams). Whether a single complete-case baseline is adequate for all roster types, or whether a roster-type-aware policy is needed, remains an open user decision (see `PHASE1A_PILOT_REPORT.md`).
+Phase 1A confirmed this policy's mechanics work across four teams. The same statuses and complete-history primary baseline apply to every team; no roster-specific policy is introduced. The `complete` share varies from 57.2% to 81.6% across the pilot teams, but the bounded sample does not establish roster type as the cause or a league-wide relationship. All rows remain available for later evaluation of a universal fallback (see `PHASE1A_PILOT_REPORT.md`).
 
 ## Phase 0 requirement
 

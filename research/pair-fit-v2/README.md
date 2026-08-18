@@ -6,17 +6,19 @@ This folder contains the Phase 0 feasibility scaffold for the Hanson Hoops pair-
 
 ## Phase 1A status
 
-Phase 1A bounded multi-team pilot complete; schema and join behavior generalize; prior-history coverage varies materially by roster type and does not generalize uniformly
+Phase 1A bounded multi-team pilot complete; schema and join behavior are consistent across the four pilot teams; prior-history coverage varies materially within this bounded sample
 
-Three new teams (Boston Celtics, Washington Wizards, Brooklyn Nets) were acquired via six bounded live requests and combined with the cached Warriors data (736 combined 2024-25 pairs). Base and Advanced schemas are identical across all four teams; all Base-to-Advanced joins are 100% matched and one-to-one; the combined canonical observation key has zero duplicates. Prior-player pair-level coverage ranges from 57.2% (Washington Wizards) to 81.6% (Boston Celtics), combined 68.9% (507/736) — materially different by roster type. Full findings, exact figures, and the Phase 1B recommendation are in `PHASE1A_PILOT_REPORT.md`.
+Three new teams (Boston Celtics, Washington Wizards, Brooklyn Nets) were acquired via six bounded live requests and combined with the cached Warriors data (736 combined 2024-25 pairs). Base and Advanced schemas are identical across all four teams; all Base-to-Advanced joins are 100% matched and one-to-one; the combined canonical observation key has zero duplicates. Prior-player pair-level coverage ranges from 57.2% (Washington Wizards) to 81.6% (Boston Celtics), combined 68.9% (507/736). The pattern is consistent with the deliberately selected roster profiles, but four teams do not establish roster type as the cause or prove a league-wide relationship.
+
+The cache-only possession audit found one zero/missing-possession row: Washington's `K. Middleton - J. McDaniels` pair (`1629667`, `203114`) has Base `MIN=0.143333`, Advanced `MIN=0.0`, `POSS=0.0`, and returned `OFF_RATING=0.0`, `DEF_RATING=0.0`, `NET_RATING=0.0`. It is retained unchanged but is ineligible for a possession-based rate target. No other pilot row has zero or missing `POSS`. Full findings and the bounded Phase 1B recommendation are in `PHASE1A_PILOT_REPORT.md`.
 
 ## Phase 0F status
 
-one-team prior-player join feasibility quantified; provisional missing-history baseline policy adopted; multi-team scale remains pending
+one-team prior-player join feasibility quantified; uniform missing-history status policy established and later exercised by Phase 1A
 
-Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique player rows, 0 duplicate IDs) and joined it by stable `PLAYER_ID` to the 183 Warriors 2024-25 canonical pairs. Player-level coverage: 19/23 unique players (82.6%). Pair-level coverage: 143/183 pairs with both players matched (78.1%); the missing pairs are concentrated in a small number of players and hold 2,989.0 of 39,458.0 summed shared minutes (7.6%) and 6,365 of 84,005 summed possessions (7.6%). One traded player (Buddy Hield) shows a valid `GP=84`, which is a normal combined-team total, not an anomaly. A provisional missing-history baseline policy has been adopted (see `MODELSPEC.md`); it is subject to reevaluation after the Phase 1A multi-team pilot. Multi-team feasibility and predictive feasibility remain pending.
+Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique player rows, 0 duplicate IDs) and joined it by stable `PLAYER_ID` to the 183 Warriors 2024-25 canonical pairs. Player-level coverage: 19/23 unique players (82.6%). Pair-level coverage: 143/183 pairs with both players matched (78.1%). One traded player (Buddy Hield) shows a valid `GP=84`, which is a normal combined-team total, not an anomaly. The uniform missing-history policy uses `complete`, `one_missing`, and `both_missing`, makes complete-history pairs the primary baseline population, never zero-imputes absent history, and retains every row for later evaluation of one universal no-history fallback (see `MODELSPEC.md`). Predictive feasibility remains unverified.
 
-**Phase 1A recommendation (superseded by the completed pilot)**: go for a bounded multi-team ingestion and validation pilot (testing whether schemas, pair joins, prior coverage and missing-history patterns generalize beyond the Warriors); no-go for model training or full historical expansion. See `PHASE1A_PILOT_REPORT.md` for the completed pilot's Phase 1B recommendation.
+**Phase 1B recommendation:** bounded go for architecture and ingestion design only; no-go for model training or historical expansion until the exposure policy, uniform missing-history treatment, and chronological validation design are approved. See `PHASE1A_PILOT_REPORT.md`.
 
 ## Status
 
@@ -24,15 +26,14 @@ Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique 
 - Data dictionary: `DATA_DICTIONARY.md`
 - Feasibility report: `FEASIBILITY_REPORT.md`
 - Phase 1A pilot report: `PHASE1A_PILOT_REPORT.md`
-- Tests: `tests/test_phase0_pipeline.py`
+- Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`
 
 ## Commands
 
 From the repository root:
 
 ```powershell
-cd research\pair-fit-v2
-python -m pytest tests -q
+python.exe -m pytest research\pair-fit-v2\tests -q --basetemp=research\pair-fit-v2\.pytest_tmp
 ```
 
 To inspect the package in a Python shell:
@@ -49,5 +50,9 @@ python -c "import sys; sys.path.insert(0, r'.\src'); from pair_fit_v2.schema imp
 - Keep all raw API responses and caches immutable where possible.
 - Use prior-season player data only, not same-season target stats.
 - Preserve the canonical pair identity rule: A+B and B+A are not distinct records.
-- Prior-player join audit (Phase 0F): one-team feasibility is quantified and a provisional missing-history baseline policy is adopted (see `MODELSPEC.md`).
-- Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`): schema/join behavior generalizes across four teams; prior-history coverage does not generalize uniformly and varies by roster type. Phase 1B is a bounded go for architecture/ingestion design only; model training remains prohibited.
+- Define a schema fingerprint by result-set name, ordered columns, and column count; treat row count as data volume, not schema identity.
+- Use Base `MIN` for shared-minute exposure and Advanced `POSS` for possession exposure. Do not assume Advanced `MIN` is interchangeable with Base `MIN` at sparse exposure.
+- Retain rows with missing `POSS` or `POSS <= 0` for audit, but mark them ineligible for possession-based rate targets even when ratings are numeric. No positive exposure threshold has been selected.
+- Apply the same `complete`/`one_missing`/`both_missing` policy across teams, use complete-history pairs as the primary baseline population, never zero-impute missing history, and retain all rows for later evaluation of a universal fallback.
+- Use time-ordered or rolling-origin validation, preserve 2025-26 as the untouched final test season, and reject random pair-row splits because overlapping players and pairs violate row independence.
+- Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`): schema/join behavior is consistent across four pilot teams; coverage varies materially but the sample does not establish roster type as the cause or a league-wide relationship. Phase 1B is a bounded go for architecture/ingestion design only; model training and historical expansion remain prohibited pending approval of the exposure, missing-history, and validation policies.

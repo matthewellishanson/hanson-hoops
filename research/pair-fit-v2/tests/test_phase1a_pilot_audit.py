@@ -8,7 +8,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from pair_fit_v2 import direct_fetch
-from pair_fit_v2.lineup_audit import attach_pair_context
+from pair_fit_v2.lineup_audit import (
+    attach_pair_context,
+    identify_zero_or_missing_possession_rows,
+)
 from pair_fit_v2.multi_team_audit import (
     combine_pair_tables,
     compare_schema_fingerprints,
@@ -308,6 +311,69 @@ def test_possession_distribution_reports_sparse_buckets_without_threshold():
     assert distribution["below_200"] == 5
     # No filtering occurred: all rows remain represented in the count.
     assert distribution["count"] == len(rows)
+
+
+def test_zero_possessions_are_flagged_for_audit():
+    advanced = make_pair_row("-101-202-", "A - B", POSS=0)
+
+    flagged = identify_zero_or_missing_possession_rows([advanced])
+
+    assert len(flagged) == 1
+    assert flagged[0]["poss"] == 0.0
+    assert flagged[0]["canonical_pair_ids"] == ("101", "202")
+
+
+def test_missing_possessions_are_flagged_for_audit():
+    advanced = make_pair_row("-101-202-", "A - B", POSS=None)
+
+    flagged = identify_zero_or_missing_possession_rows([advanced])
+
+    assert len(flagged) == 1
+    assert flagged[0]["poss"] is None
+
+
+def test_positive_possessions_are_not_flagged_for_audit():
+    advanced = make_pair_row("-101-202-", "A - B", POSS=1)
+
+    assert identify_zero_or_missing_possession_rows([advanced]) == []
+
+
+def test_numeric_ratings_at_zero_possessions_do_not_make_target_eligible():
+    advanced = make_pair_row(
+        "-101-202-",
+        "A - B",
+        POSS=0,
+        OFF_RATING=100.0,
+        DEF_RATING=90.0,
+        NET_RATING=10.0,
+    )
+
+    flagged = identify_zero_or_missing_possession_rows([advanced])
+
+    assert flagged[0]["numeric_ratings_returned"] is True
+    assert flagged[0]["off_rating"] == 100.0
+    assert flagged[0]["def_rating"] == 90.0
+    assert flagged[0]["net_rating"] == 10.0
+    assert flagged[0]["eligible_for_possession_based_rate_target"] is False
+
+
+def test_zero_possession_base_match_uses_full_observation_identity():
+    advanced = make_pair_row(
+        "-101-202-", "A - B", season="2024-25", team_id="1", POSS=0, MIN=0
+    )
+    base_rows = [
+        make_pair_row("-202-101-", "B - A", season="2024-25", team_id="1", MIN=1.25),
+        make_pair_row("-101-202-", "A - B", season="2023-24", team_id="1", MIN=2.5),
+        make_pair_row("-101-202-", "A - B", season="2024-25", team_id="2", MIN=3.75),
+    ]
+
+    flagged = identify_zero_or_missing_possession_rows([advanced], base_rows)
+
+    assert flagged[0]["season"] == "2024-25"
+    assert flagged[0]["team_id"] == "1"
+    assert flagged[0]["canonical_pair_ids"] == ("101", "202")
+    assert flagged[0]["base_min"] == 1.25
+    assert flagged[0]["advanced_min"] == 0
 
 
 def test_no_minimum_threshold_is_applied_to_pair_rows():

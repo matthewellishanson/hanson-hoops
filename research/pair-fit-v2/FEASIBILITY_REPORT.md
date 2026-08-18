@@ -18,7 +18,7 @@ Phase 0 progress summary:
 9. **Missing-history policy**: ✓ Provisional Phase 1 baseline adopted (`complete` / `one_missing` / `both_missing` categorical status; see `MODELSPEC.md`), subject to reevaluation after the multi-team pilot
 10. **Multi-team and multi-season feasibility**: ⏳ Unverified (one Warriors smoke test; 30-team scale unknown) — this is the explicit purpose of the recommended Phase 1A pilot
 
-The direct `requests.Session` pattern succeeds where the nba_api wrapper times out. Authentic Base, Advanced and prior-player TeamDashLineups/LeagueDashPlayerStats responses have been cached and replayed. The project is ready for a bounded Phase 1A multi-team ingestion and validation pilot; full Phase 1 modeling and historical expansion remain no-go until that pilot's results are reviewed.
+The direct `requests.Session` pattern succeeds where the nba_api wrapper times out. Successful HTTP acquisitions of the Base, Advanced, and prior-player TeamDashLineups/LeagueDashPlayerStats responses were recorded, cached, and replayed. Their canonical JSON hashes verify semantic cache-content integrity relative to the recorded hashes; they do not independently prove source authenticity or byte-for-byte cache-file identity after JSON reserialization. The project is ready for a bounded Phase 1A multi-team ingestion and validation pilot; full Phase 1 modeling and historical expansion remain no-go until that pilot's results are reviewed.
 
 ## Data and seasons tested
 
@@ -95,8 +95,8 @@ The timeout occurred at the network layer (HTTPSConnectionPool read timeout), no
 
 **Cache replay verification:**
 - Cached response loaded from disk without making a new live request
-- Cached schema (columns and row count) is identical to live response
-- Content hash matches: response is authentic and not corrupted
+- Cached ordered columns match the live response; row count also matches as a separate data-volume check
+- Canonical JSON hash matches the recorded hash, verifying semantic cache-content integrity rather than source authenticity or byte-for-byte serialized-file identity
 
 **Diagnostic finding:**
 - Network layers (DNS, TCP, TLS) are all functioning
@@ -163,8 +163,8 @@ The timeout occurred at the network layer (HTTPSConnectionPool read timeout), no
 
 **Cache replay verification:**
 - Cached response loaded from disk without making a new live request
-- Cached schema (columns and row count) is identical to live response
-- Content hash matches: response is authentic and not corrupted
+- Cached ordered columns match the live response; row count also matches as a separate data-volume check
+- Canonical JSON hash matches the recorded hash, verifying semantic cache-content integrity rather than source authenticity or byte-for-byte serialized-file identity
 
 **Implementation artifact: direct_fetch.py**
 - Created reusable research-only module `src/pair_fit_v2/direct_fetch.py`
