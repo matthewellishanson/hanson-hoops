@@ -4,11 +4,13 @@
 
 This folder contains the Phase 0 feasibility scaffold for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
 
-## Phase 0E status
+## Phase 0F status
 
-live one-team rate-target availability and Base-to-Advanced join verified; prior-player and multi-team feasibility remain pending
+one-team prior-player join feasibility quantified; provisional missing-history baseline policy adopted; multi-team scale remains pending
 
-Phase 0D acquired one authentic 2024-25 Warriors Base pair-lineup response (183 two-player pairs). Phase 0E acquired one Warriors Advanced response through the same direct `requests.Session` path and joined all 183 canonical pairs one-to-one to Base. `OFF_RATING`, `DEF_RATING`, `NET_RATING`, estimated counterparts, `POSS`, `PACE` and `MIN` were directly observed. `PLUS_MINUS` remains cumulative on-court differential, not a per-possession rate. Prior-player join audit (Phase 0F) and multi-team feasibility remain pending.
+Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique player rows, 0 duplicate IDs) and joined it by stable `PLAYER_ID` to the 183 Warriors 2024-25 canonical pairs. Player-level coverage: 19/23 unique players (82.6%). Pair-level coverage: 143/183 pairs with both players matched (78.1%); the missing pairs are concentrated in a small number of players and hold 2,989.0 of 39,458.0 summed shared minutes (7.6%) and 6,365 of 84,005 summed possessions (7.6%). One traded player (Buddy Hield) shows a valid `GP=84`, which is a normal combined-team total, not an anomaly. A provisional missing-history baseline policy has been adopted (see `MODELSPEC.md`); it is subject to reevaluation after the Phase 1A multi-team pilot. Multi-team feasibility and predictive feasibility remain pending.
+
+**Phase 1A recommendation**: go for a bounded multi-team ingestion and validation pilot (testing whether schemas, pair joins, prior coverage and missing-history patterns generalize beyond the Warriors); no-go for model training or full historical expansion.
 
 ## Status
 
@@ -40,4 +42,4 @@ python -c "import sys; sys.path.insert(0, r'.\src'); from pair_fit_v2.schema imp
 - Keep all raw API responses and caches immutable where possible.
 - Use prior-season player data only, not same-season target stats.
 - Preserve the canonical pair identity rule: A+B and B+A are not distinct records.
-- Prior-player join audit (Phase 0F), multi-team historical feasibility and predictive feasibility remain pending.
+- Prior-player join audit (Phase 0F): one-team feasibility is quantified and a provisional missing-history baseline policy is adopted (see `MODELSPEC.md`). Multi-team historical feasibility and predictive feasibility remain pending, to be tested in the bounded Phase 1A pilot.

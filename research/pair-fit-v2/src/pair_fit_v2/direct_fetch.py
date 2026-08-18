@@ -177,6 +177,125 @@ def fetch_league_dash_lineups(
         return False, {}, elapsed, f"{type(e).__name__}: {str(e)[:100]}"
 
 
+def fetch_league_dash_player_stats(
+    season: str = '2023-24',
+    season_type: str = 'Regular Season',
+    measure_type: str = 'Base',
+    per_mode: str = 'Per100Possessions',
+    league_id: str = '00',
+    timeout: int = 30,
+) -> Tuple[bool, dict, float, Optional[str]]:
+    """
+    Fetch LeagueDashPlayerStats via direct requests.Session.
+
+    Parameter set mirrors the full normalized parameter dict built by the
+    installed nba_api LeagueDashPlayerStats endpoint (all nullable fields
+    default to an empty string; LastNGames/Month/OpponentTeamID/Period
+    default to 0; PaceAdjust/PlusMinus/Rank default to 'N'/'N'/'N').
+
+    Returns:
+        Tuple of (success: bool, payload: dict, elapsed_time: float, error_msg: Optional[str])
+    """
+    url = (
+        f"https://stats.nba.com/stats/leaguedashplayerstats"
+        f"?College="
+        f"&Conference="
+        f"&Country="
+        f"&DateFrom="
+        f"&DateTo="
+        f"&Division="
+        f"&DraftPick="
+        f"&DraftYear="
+        f"&GameScope="
+        f"&GameSegment="
+        f"&Height="
+        f"&LastNGames=0"
+        f"&LeagueID={league_id}"
+        f"&Location="
+        f"&MeasureType={measure_type}"
+        f"&Month=0"
+        f"&OpponentTeamID=0"
+        f"&Outcome="
+        f"&PORound="
+        f"&PaceAdjust=N"
+        f"&PerMode={per_mode}"
+        f"&Period=0"
+        f"&PlayerExperience="
+        f"&PlayerPosition="
+        f"&PlusMinus=N"
+        f"&Rank=N"
+        f"&Season={season}"
+        f"&SeasonSegment="
+        f"&SeasonType={season_type.replace(' ', '+')}"
+        f"&ShotClockRange="
+        f"&StarterBench="
+        f"&TeamID="
+        f"&TwoWay="
+        f"&VsConference="
+        f"&VsDivision="
+        f"&Weight="
+    )
+
+    session = create_research_session()
+    start = time.time()
+
+    try:
+        response = session.get(url, timeout=timeout)
+        elapsed = time.time() - start
+
+        if response.status_code != 200:
+            return False, {}, elapsed, f"HTTP {response.status_code}"
+
+        try:
+            payload = response.json()
+            return True, payload, elapsed, None
+        except json.JSONDecodeError as e:
+            return False, {}, elapsed, f"JSON decode error: {str(e)[:100]}"
+
+    except requests.Timeout as e:
+        elapsed = time.time() - start
+        return False, {}, elapsed, f"Request timeout after {elapsed:.1f}s"
+    except requests.RequestException as e:
+        elapsed = time.time() - start
+        return False, {}, elapsed, f"{type(e).__name__}: {str(e)[:100]}"
+
+
+def league_dash_player_stats_cache_name(season: str, measure_type: str, per_mode: str) -> str:
+    """Return a stable cache name identifying endpoint, season, measure and per mode."""
+    measure_slug = measure_type.strip().lower().replace(" ", "_")
+    per_mode_slug = per_mode.strip().lower().replace(" ", "_")
+    return f"league_dash_player_stats_{season}_{measure_slug}_{per_mode_slug}.json"
+
+
+def load_or_fetch_league_dash_player_stats(
+    season: str = '2023-24',
+    season_type: str = 'Regular Season',
+    measure_type: str = 'Base',
+    per_mode: str = 'Per100Possessions',
+    league_id: str = '00',
+    timeout: int = 30,
+    cache_dir: Optional[Path] = None,
+) -> Tuple[bool, dict, float, Optional[str], bool]:
+    """Return a cached payload when available; otherwise perform one direct request."""
+    cache_dir = cache_dir or Path('research/pair-fit-v2/cache/live_responses')
+    cache_file = cache_dir / league_dash_player_stats_cache_name(season, measure_type, per_mode)
+    cached = load_cached_response(cache_file)
+    if cached is not None:
+        return True, cached, 0.0, None, True
+
+    success, payload, elapsed, error = fetch_league_dash_player_stats(
+        season=season,
+        season_type=season_type,
+        measure_type=measure_type,
+        per_mode=per_mode,
+        league_id=league_id,
+        timeout=timeout,
+    )
+    if success:
+        cache_response(payload, cache_file.name, cache_dir)
+    return success, payload, elapsed, error, False
+
+
 def team_dash_lineups_cache_name(team_id: str, season: str, measure_type: str) -> str:
     """Return a stable, measure-specific cache name for TeamDashLineups payloads."""
     measure_slug = measure_type.strip().lower().replace(" ", "_")
