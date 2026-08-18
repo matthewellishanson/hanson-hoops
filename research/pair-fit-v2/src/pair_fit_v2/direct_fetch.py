@@ -177,6 +177,41 @@ def fetch_league_dash_lineups(
         return False, {}, elapsed, f"{type(e).__name__}: {str(e)[:100]}"
 
 
+def team_dash_lineups_cache_name(team_id: str, season: str, measure_type: str) -> str:
+    """Return a stable, measure-specific cache name for TeamDashLineups payloads."""
+    measure_slug = measure_type.strip().lower().replace(" ", "_")
+    return f"team_dash_lineups_{team_id}_{season}_{measure_slug}.json"
+
+
+def load_or_fetch_team_dash_lineups(
+    team_id: str,
+    season: str = '2024-25',
+    season_type: str = 'Regular Season',
+    group_quantity: str = '2',
+    measure_type: str = 'Base',
+    timeout: int = 30,
+    cache_dir: Optional[Path] = None,
+) -> Tuple[bool, dict, float, Optional[str], bool]:
+    """Return a cached payload when available; otherwise perform one direct request."""
+    cache_dir = cache_dir or Path('research/pair-fit-v2/cache/live_responses')
+    cache_file = cache_dir / team_dash_lineups_cache_name(team_id, season, measure_type)
+    cached = load_cached_response(cache_file)
+    if cached is not None:
+        return True, cached, 0.0, None, True
+
+    success, payload, elapsed, error = fetch_team_dash_lineups(
+        team_id=team_id,
+        season=season,
+        season_type=season_type,
+        group_quantity=group_quantity,
+        measure_type=measure_type,
+        timeout=timeout,
+    )
+    if success:
+        cache_response(payload, cache_file.name, cache_dir)
+    return success, payload, elapsed, error, False
+
+
 def cache_response(
     payload: dict,
     cache_name: str,

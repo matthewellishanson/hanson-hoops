@@ -14,17 +14,20 @@ This data dictionary covers the research-only Phase 0 feasibility scaffold. It i
 
 - `TEAM_ID`: team id associated with the pair-season observation.
 - `TEAM_ABBREVIATION`: team abbreviation for readability.
-- `ORTG`: offensive rating while both players share the court.
-- `DRTG`: defensive rating while both players share the court.
-- `NET_RTG`: derived target as ORTG - DRTG.
+- `OFF_RATING`: observed Advanced-measure offensive rating while both players share the court.
+- `DEF_RATING`: observed Advanced-measure defensive rating while both players share the court.
+- `NET_RATING`: observed Advanced-measure net rating; reconciled to `OFF_RATING - DEF_RATING` within displayed rounding in the one-team smoke test.
+- `E_OFF_RATING`, `E_DEF_RATING`, `E_NET_RATING`: separately returned estimated rating fields. They must not be silently conflated with the non-estimated rating fields.
 - `MIN`: shared minutes for the pair while on the court.
+- `POSS`: observed Advanced-measure possessions; reliability/sample-size information, not player quality.
 - `GP`: games in which the pair appears, where available.
 - `PTS`: total points produced by the pair while on the court.
-- `PLUS_MINUS`: point differential associated with the pair while sharing the court.
+- `PLUS_MINUS`: cumulative on-court team point differential while the pair shares the court. It is not net rating, an on/off statistic or a per-100-possession target.
 
 ## Reliability fields
 
 - `MIN`: used as a reliability and sample-size field, not as a player-quality feature.
+- `POSS`: used as a reliability and sample-size field, not as a player-quality feature.
 - `GP`: used to evaluate exposure and coverage.
 - `W_PCT`: context for reliability and validation, not a quality label.
 - `GROUP_SET`: identifies the grouping context from the NBA endpoint.

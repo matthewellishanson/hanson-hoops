@@ -19,11 +19,13 @@ Canonical pair identity should satisfy:
 
 ## Target definition
 
-The primary target is team offensive rating (ORtg) and defensive rating (DRtg) while both players share the court.
+The observed 2024-25 TeamDashLineups Advanced response directly provides team offensive rating (`OFF_RATING`) and defensive rating (`DEF_RATING`) while both players share the court.
 
-Derived target:
+The provisional primary rate target is `NET_RATING`, with the expected relationship:
 
-- net rating = ORtg - DRtg
+- `NET_RATING` = `OFF_RATING` - `DEF_RATING`, subject to displayed rounding
+
+This is a one-team target-availability finding, not evidence of predictive validity. The Base-measure `PLUS_MINUS` field is a cumulative on-court team point differential; it is neither net rating nor an on/off statistic and is not substituted for the rate target.
 
 The central research question is whether a supervised projection can estimate expected shared-court team performance for a selected pair, given prior-period player capability and standardized context.
 
@@ -93,7 +95,7 @@ The intended future historical split is:
 
 This document does not claim that the final model is valid or that interaction effects are predictable. The purpose of Phase 0 is feasibility and data-contract validation only.
 
-The current research status is: currently blocked. The synthetic scaffold is valid, but the live pair-season feasibility check is blocked by upstream NBA stats access timeouts during the bounded live request attempt.
+The current research status is: live one-team Base and Advanced pair acquisition, plus the canonical Base-to-Advanced join, are verified. Prior-player joins, multi-team historical consistency and predictive feasibility remain unverified.
 
 ## Phase 0 requirement
 
