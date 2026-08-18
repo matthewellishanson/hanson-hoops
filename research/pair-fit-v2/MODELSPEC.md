@@ -95,7 +95,7 @@ The intended future historical split is:
 
 This document does not claim that the final model is valid or that interaction effects are predictable. The purpose of Phase 0 is feasibility and data-contract validation only.
 
-The current research status is: live one-team Base and Advanced pair acquisition, plus the canonical Base-to-Advanced join, are verified. Phase 0F acquired one live 2023-24 LeagueDashPlayerStats response and quantified prior-player join feasibility for the 183 Warriors 2024-25 pairs: player-level coverage 19/23 (82.6%), pair-level complete-prior coverage 143/183 (78.1%). A provisional missing-history baseline policy has been adopted (see below). Multi-team historical consistency and predictive feasibility remain unverified.
+The current research status is: Phase 1A bounded multi-team pilot complete. Base and Advanced schemas, canonical pair parsing, and Base-to-Advanced joins generalize across four teams (Golden State Warriors, Boston Celtics, Washington Wizards, Brooklyn Nets; 736 combined pairs). Prior-player coverage does **not** generalize uniformly: pair-level complete-prior coverage ranges from 57.2% (Washington Wizards, young/rebuilding roster) to 81.6% (Boston Celtics, stable roster), combined 68.9% (507/736). Full details, exact numerators/denominators, and the Phase 1B recommendation are in `PHASE1A_PILOT_REPORT.md`. Multi-season consistency and predictive feasibility remain unverified.
 
 ## Prior-player join audit (Phase 0F)
 
@@ -111,9 +111,9 @@ Missing-history policy: a provisional Phase 1 baseline policy has been adopted (
 
 This audit does not establish multi-team coverage, does not select a final feature set, and does not train or validate a model.
 
-## Provisional missing-history policy (Phase 1 baseline, subject to reevaluation)
+## Provisional missing-history policy (Phase 1 baseline, reevaluated after Phase 1A)
 
-This is a provisional baseline policy for the upcoming Phase 1A multi-team pilot, not a final modeling decision:
+This baseline policy was applied unchanged in the Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`); it is still not a final modeling decision:
 
 1. Preserve all pair observations in raw and curated datasets; no pair rows are dropped from storage.
 2. Add a categorical prior-history status per pair: `complete`, `one_missing`, or `both_missing`.
@@ -122,7 +122,7 @@ This is a provisional baseline policy for the upcoming Phase 1A multi-team pilot
 5. Retain `one_missing`/`both_missing` pairs for coverage analysis and a possible later no-history fallback.
 6. The no-history fallback model is not yet defined or implemented.
 
-This policy is subject to reevaluation after the Phase 1A multi-team pilot confirms whether coverage patterns generalize beyond the Warriors.
+Phase 1A confirmed this policy's mechanics work across four teams, but also found that the `complete`-status share varies materially by roster type (57.2%-81.6% across the pilot teams). Whether a single complete-case baseline is adequate for all roster types, or whether a roster-type-aware policy is needed, remains an open user decision (see `PHASE1A_PILOT_REPORT.md`).
 
 ## Phase 0 requirement
 

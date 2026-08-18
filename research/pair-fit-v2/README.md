@@ -4,19 +4,26 @@
 
 This folder contains the Phase 0 feasibility scaffold for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
 
+## Phase 1A status
+
+Phase 1A bounded multi-team pilot complete; schema and join behavior generalize; prior-history coverage varies materially by roster type and does not generalize uniformly
+
+Three new teams (Boston Celtics, Washington Wizards, Brooklyn Nets) were acquired via six bounded live requests and combined with the cached Warriors data (736 combined 2024-25 pairs). Base and Advanced schemas are identical across all four teams; all Base-to-Advanced joins are 100% matched and one-to-one; the combined canonical observation key has zero duplicates. Prior-player pair-level coverage ranges from 57.2% (Washington Wizards) to 81.6% (Boston Celtics), combined 68.9% (507/736) — materially different by roster type. Full findings, exact figures, and the Phase 1B recommendation are in `PHASE1A_PILOT_REPORT.md`.
+
 ## Phase 0F status
 
 one-team prior-player join feasibility quantified; provisional missing-history baseline policy adopted; multi-team scale remains pending
 
 Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique player rows, 0 duplicate IDs) and joined it by stable `PLAYER_ID` to the 183 Warriors 2024-25 canonical pairs. Player-level coverage: 19/23 unique players (82.6%). Pair-level coverage: 143/183 pairs with both players matched (78.1%); the missing pairs are concentrated in a small number of players and hold 2,989.0 of 39,458.0 summed shared minutes (7.6%) and 6,365 of 84,005 summed possessions (7.6%). One traded player (Buddy Hield) shows a valid `GP=84`, which is a normal combined-team total, not an anomaly. A provisional missing-history baseline policy has been adopted (see `MODELSPEC.md`); it is subject to reevaluation after the Phase 1A multi-team pilot. Multi-team feasibility and predictive feasibility remain pending.
 
-**Phase 1A recommendation**: go for a bounded multi-team ingestion and validation pilot (testing whether schemas, pair joins, prior coverage and missing-history patterns generalize beyond the Warriors); no-go for model training or full historical expansion.
+**Phase 1A recommendation (superseded by the completed pilot)**: go for a bounded multi-team ingestion and validation pilot (testing whether schemas, pair joins, prior coverage and missing-history patterns generalize beyond the Warriors); no-go for model training or full historical expansion. See `PHASE1A_PILOT_REPORT.md` for the completed pilot's Phase 1B recommendation.
 
 ## Status
 
 - Phase 0 model contract: in `MODELSPEC.md`
 - Data dictionary: `DATA_DICTIONARY.md`
 - Feasibility report: `FEASIBILITY_REPORT.md`
+- Phase 1A pilot report: `PHASE1A_PILOT_REPORT.md`
 - Tests: `tests/test_phase0_pipeline.py`
 
 ## Commands
@@ -42,4 +49,5 @@ python -c "import sys; sys.path.insert(0, r'.\src'); from pair_fit_v2.schema imp
 - Keep all raw API responses and caches immutable where possible.
 - Use prior-season player data only, not same-season target stats.
 - Preserve the canonical pair identity rule: A+B and B+A are not distinct records.
-- Prior-player join audit (Phase 0F): one-team feasibility is quantified and a provisional missing-history baseline policy is adopted (see `MODELSPEC.md`). Multi-team historical feasibility and predictive feasibility remain pending, to be tested in the bounded Phase 1A pilot.
+- Prior-player join audit (Phase 0F): one-team feasibility is quantified and a provisional missing-history baseline policy is adopted (see `MODELSPEC.md`).
+- Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`): schema/join behavior generalizes across four teams; prior-history coverage does not generalize uniformly and varies by roster type. Phase 1B is a bounded go for architecture/ingestion design only; model training remains prohibited.

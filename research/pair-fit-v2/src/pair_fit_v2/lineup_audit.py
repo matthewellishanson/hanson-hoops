@@ -146,6 +146,40 @@ def summarize_advanced_targets(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return summary
 
 
+def identify_zero_or_missing_possession_rows(
+    advanced_rows: list[dict[str, Any]], base_rows: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    """Return full identity and rating detail for every zero/missing-possession Advanced row.
+
+    A returned OFF_RATING/DEF_RATING/NET_RATING at POSS<=0 is a numeric value the
+    endpoint returned, not a meaningful rate: rates are undefined without possessions.
+    Rows are reported, never deleted or converted to missing.
+    """
+    base_by_group_id = {row.get("GROUP_ID"): row for row in (base_rows or [])}
+    flagged = []
+    for row in advanced_rows:
+        poss = _numeric(row.get("POSS"))
+        if poss is not None and poss > 0:
+            continue
+        base_row = base_by_group_id.get(row.get("GROUP_ID"))
+        flagged.append(
+            {
+                "team_id": row.get("team_id"),
+                "pair_key": row.get("pair_key"),
+                "group_name": row.get("GROUP_NAME"),
+                "poss": poss,
+                "base_min": base_row.get("MIN") if base_row else None,
+                "advanced_min": row.get("MIN"),
+                "off_rating": row.get("OFF_RATING"),
+                "def_rating": row.get("DEF_RATING"),
+                "net_rating": row.get("NET_RATING"),
+                "numeric_rating_returned": row.get("NET_RATING") is not None,
+                "eligible_for_possession_based_rate_target": False,
+            }
+        )
+    return flagged
+
+
 def join_pair_measures(
     base_rows: list[dict[str, Any]], advanced_rows: list[dict[str, Any]]
 ) -> dict[str, Any]:
