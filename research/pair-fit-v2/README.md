@@ -2,7 +2,13 @@
 
 ## Scope
 
-This folder contains the Phase 0 feasibility scaffold for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
+This folder contains the Phase 0 feasibility scaffold, Phase 1A evidence audit and Phase 1B architecture contracts for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
+
+## Phase 1B status
+
+Architecture and ingestion design is now specified in `PHASE1B_ARCHITECTURE.md`. Standard-library contracts define stable season/team/pair keys, deterministic raw-asset and season manifests, resumability decisions, provenance requirements, schema-drift quarantine, row-preserving curated validation, complete 30-team raw gates and an extensible prior-player feature-source registry. The complete-season gate independently verifies the normalized manifest identity and ID, each asset ID against its embedded identity, each embedded identity against the manifest's expected request, and each required schema fingerprint against the approved measure-specific schema contract.
+
+Phase 1B has not acquired any remaining team, made a live request, created Parquet or DuckDB artifacts, trained a model or used 2025-26 data. The contracts were verified against the existing four-team caches only: 8/8 unique assets matched their recorded canonical JSON hashes, Base/Advanced schemas were identical, and all 736 pair observations had unique full Phase 1B keys.
 
 ## Phase 1A status
 
@@ -26,7 +32,8 @@ Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique 
 - Data dictionary: `DATA_DICTIONARY.md`
 - Feasibility report: `FEASIBILITY_REPORT.md`
 - Phase 1A pilot report: `PHASE1A_PILOT_REPORT.md`
-- Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`
+- Phase 1B architecture: `PHASE1B_ARCHITECTURE.md`
+- Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py` and `tests/test_phase1b_architecture.py`
 
 ## Commands
 
@@ -46,7 +53,7 @@ python -c "import sys; sys.path.insert(0, r'.\src'); from pair_fit_v2.schema imp
 ## Research guardrails
 
 - Do not use 2025–26 as experimental data.
-- Do not train a model in Phase 0.
+- Do not train a model during the current architecture/ingestion-design phase.
 - Keep all raw API responses and caches immutable where possible.
 - Use prior-season player data only, not same-season target stats.
 - Preserve the canonical pair identity rule: A+B and B+A are not distinct records.
@@ -56,3 +63,5 @@ python -c "import sys; sys.path.insert(0, r'.\src'); from pair_fit_v2.schema imp
 - Apply the same `complete`/`one_missing`/`both_missing` policy across teams, use complete-history pairs as the primary baseline population, never zero-impute missing history, and retain all rows for later evaluation of a universal fallback.
 - Use time-ordered or rolling-origin validation, preserve 2025-26 as the untouched final test season, and reject random pair-row splits because overlapping players and pairs violate row independence.
 - Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`): schema/join behavior is consistent across four pilot teams; coverage varies materially but the sample does not establish roster type as the cause or a league-wide relationship. Phase 1B is a bounded go for architecture/ingestion design only; model training and historical expansion remain prohibited pending approval of the exposure, missing-history, and validation policies.
+- Phase 1B contracts (see `PHASE1B_ARCHITECTURE.md`) are design-only. Do not execute a 30-team manifest, materialize Parquet/DuckDB, or fetch remaining teams without a later explicit approval.
+- Keep `group_quantity=2` for `pair_observations`. It is part of raw request identity, so pair/trio/quartet/five-player requests cannot collide. Higher-order research requires a separate versioned group-observation contract; aggregating pair predictions across a larger selection would not be a directly trained lineup model.

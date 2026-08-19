@@ -3,7 +3,9 @@
 
 ## Executive conclusion
 
-`one-team prior-player join feasibility quantified; provisional missing-history baseline policy adopted; multi-team scale remains pending`
+Historical Phase 0 conclusion: `one-team prior-player join feasibility quantified; provisional missing-history baseline policy adopted; multi-team scale remained pending at that checkpoint`.
+
+Current status: Phase 1A is complete. Its four-team, cache-replayable pilot confirmed identical Base/Advanced schemas and one-to-one joins for 736 observations while finding materially different prior-history coverage across the bounded sample; that pattern does not establish roster type as the cause or a league-wide relationship. Phase 1B now defines the design-only raw JSON → curated Parquet → DuckDB architecture and hardened manifest, provenance, schema-drift and complete-season validation contracts. No remaining-team ingestion, materialization or modeling has occurred.
 
 Phase 0 progress summary:
 
@@ -15,17 +17,17 @@ Phase 0 progress summary:
 6. **Base-to-Advanced canonical join**: ✓ Verified for one Warriors response (183/183 pairs, one-to-one, no unmatched pairs)
 7. **Prior-player response acquisition**: ✓ Verified (one live 2023-24 LeagueDashPlayerStats response, 572 unique player rows, 0 duplicate IDs)
 8. **Prior-player join quantification**: ✓ Quantified for one team (player-level 19/23 = 82.6%; pair-level 143/183 = 78.1%)
-9. **Missing-history policy**: ✓ Provisional Phase 1 baseline adopted (`complete` / `one_missing` / `both_missing` categorical status; see `MODELSPEC.md`), subject to reevaluation after the multi-team pilot
-10. **Multi-team and multi-season feasibility**: ⏳ Unverified (one Warriors smoke test; 30-team scale unknown) — this is the explicit purpose of the recommended Phase 1A pilot
+9. **Missing-history policy**: ✓ Uniform Phase 1 baseline exercised in Phase 1A (`complete` / `one_missing` / `both_missing`; complete-history primary baseline; no zero imputation; all rows retained for a universal fallback evaluation)
+10. **Multi-team and multi-season feasibility**: Phase 1A four-team feasibility is complete; complete 30-team and multi-season feasibility remains unverified
 
-The direct `requests.Session` pattern succeeds where the nba_api wrapper times out. Successful HTTP acquisitions of the Base, Advanced, and prior-player TeamDashLineups/LeagueDashPlayerStats responses were recorded, cached, and replayed. Their canonical JSON hashes verify semantic cache-content integrity relative to the recorded hashes; they do not independently prove source authenticity or byte-for-byte cache-file identity after JSON reserialization. The project is ready for a bounded Phase 1A multi-team ingestion and validation pilot; full Phase 1 modeling and historical expansion remain no-go until that pilot's results are reviewed.
+The direct `requests.Session` pattern succeeded where the nba_api wrapper timed out. Successful HTTP acquisitions of the Base, Advanced, and prior-player TeamDashLineups/LeagueDashPlayerStats responses were recorded, cached, and replayed. Their canonical JSON hashes verify semantic cache-content integrity relative to the recorded hashes; they do not independently prove source authenticity or byte-for-byte cache-file identity after JSON reserialization. Phase 1A is complete and the Phase 1B architecture contract is defined; full modeling and historical expansion remain no-go pending approval of the exposure policy, uniform missing-history treatment and chronological validation design.
 
 ## Data and seasons tested
 
 - Target season: 2024–25 regular season
 - Prior feature season: 2023–24
 - Final untouched test season: 2025–26 remains reserved
-- Research scope: phase 0 smoke test only
+- Report organization: historical Phase 0 evidence with current Phase 1A completion and Phase 1B architecture-contract status noted explicitly
 - Focus: pair-lineup feasibility, schema validation, and prior-player join coverage
 
 ## Endpoint calls attempted
@@ -279,7 +281,7 @@ The pair result set was identified by observed `GROUP_ID` values in the validate
 2. **Explicit missing-history treatment**: retain all 183 pairs with an explicit missingness or no-prior-history indicator for the 4 affected players, preserving the 2,989.0 minutes and 6,365 possessions (7.6% of each) otherwise dropped.
 3. **Separate model or baseline for no-history players**: model the 143 complete-prior pairs with the primary approach and treat the 40 pairs involving the 4 missing-history players as a distinct, separately evaluated baseline.
 
-**Adopted provisional Phase 1 baseline policy** (combines elements of 1 and 2, defers 3): preserve all 183 pairs in raw and curated datasets; add a categorical `prior_history_status` of `complete` / `one_missing` / `both_missing`; use the 143 `complete` pairs for the primary baseline model; never zero-impute missing prior statistics; retain the 40 `one_missing`/`both_missing` pairs for coverage analysis and a possible later no-history fallback (not yet defined or implemented). This policy is provisional and subject to reevaluation after the Phase 1A multi-team pilot.
+**Adopted uniform Phase 1 baseline policy** (combines elements of 1 and 2, defers 3): preserve every pair in raw and curated datasets; add a categorical `prior_history_status` of `complete` / `one_missing` / `both_missing`; use `complete` pairs for the primary baseline population; never zero-impute missing prior statistics; retain `one_missing`/`both_missing` pairs for coverage analysis and later evaluation of one universal no-history fallback (not yet defined or implemented). Phase 1A exercised this same policy across all four pilot teams without introducing roster-specific treatment.
 
 **Cache replay:** Two complete cache-only runs (player-stat parsing, stable-ID audit, join, player/pair/exposure coverage, and feature missingness) produced identical results, including the `46103a3e96e524f8` content hash. No additional live request was made.
 
@@ -312,7 +314,7 @@ The direct `requests.Session` pattern is proven to work for pair-lineup acquisit
 2. **Can an environment acquire and parse real data?**
    - ✓ **Yes, with caveats.** Direct `requests.Session` calls to stats.nba.com succeed and return valid JSON (demonstrated in Phase 0C with LeagueStandingsV3). The nba_api wrapper does not succeed from this environment.
    - **Implication:** The data-access blocker is narrower than initially believed. It is not that stats.nba.com is unreachable; it is that the nba_api wrapper's request construction, headers, retry logic, or timeout handling does not work in this environment.
-   - **Corollary:** `TeamDashLineups` direct requests have since been verified for one Warriors Base response and one Warriors Advanced response. Other teams, seasons and pair-lineup endpoints remain untested.
+   - **Corollary:** `TeamDashLineups` direct acquisition was subsequently verified for Base and Advanced responses across the four Phase 1A pilot teams. Other seasons and full 30-team scale remain untested.
 
 3. **Can the resulting data support a predictively useful model?**
    - **Unresolved.** Phase 0C acquires one control endpoint response; it does not yet establish pair-lineup data availability or sufficiency. Model feasibility is a separate question deferred to Phase 1.
@@ -320,7 +322,7 @@ The direct `requests.Session` pattern is proven to work for pair-lineup acquisit
 **Current status:**
 - Environment-specific request-wrapper incompatibility is narrower and more addressable than a general network access blocker.
 - Data acquisition from stats.nba.com is feasible via direct HTTP requests from this environment.
-- One-team pair-lineup data acquisition and the Base-to-Advanced join are verified through direct requests; multi-team expansion remains a separate diagnostic step.
+- Four-team pair-lineup acquisition and Base-to-Advanced joins were verified by Phase 1A; acquisition of the remaining teams has not begun.
 - Model feasibility is unresolved and will be addressed only after data ingestion is confirmed to work.
 
 **Distinction from old phrasing:**
@@ -392,7 +394,7 @@ The Advanced response is described in full in the Phase 0E section above. Its `L
 - Possessions data
 
 **Conclusion on targets:**
-One-team rate-target availability and Base-to-Advanced compatibility are verified. Multi-team target stability and model suitability remain pending.
+Rate-target availability and Base-to-Advanced compatibility are verified across the four Phase 1A pilot teams. This bounded evidence does not establish league-wide or multi-season target stability, and model suitability remains unverified.
 
 ## Row counts after each processing step
 
@@ -442,7 +444,7 @@ The Phase 0 summary logic reports:
 - `missing_prior_rows`
 - `complete_prior_rate`
 
-This is the right metric for deciding whether the pair-table can be joined to prior player feature tables before historical expansion. One-team feasibility is now quantified; multi-team consistency remains unverified.
+This remains the right metric for deciding whether the pair table can be joined to prior-player feature tables before historical expansion. Phase 1A quantified it across four teams; the complete-team and multi-season relationship remains unverified.
 
 ## Shared-minutes distribution and possessions
 
@@ -450,10 +452,11 @@ The Phase 0 contract treats shared minutes and possessions as reliability and sa
 
 The essential validity checks are:
 
-- minimum shared-minute threshold
-- duplicate or zero-minute row removal
-- possession availability check
-- explicit callout if possessions are absent and an estimate is not defensibly supported
+- preserve Base `MIN` as fractional shared-minute exposure and Advanced `POSS` as possession exposure;
+- retain and flag duplicate, zero-minute and zero/missing-possession observations rather than silently deleting or imputing them;
+- keep Advanced `MIN` as returned audit data without assuming it is interchangeable with Base `MIN` at sparse exposure;
+- make `POSS <= 0` ineligible for a possession-based rate target even when numeric ratings are returned;
+- defer selection of any positive minimum exposure threshold.
 
 If possessions are absent, the recommendation is to avoid a silent deduction and instead document the blocker or a clearly provisional derivation only after source validation.
 
@@ -503,44 +506,43 @@ The following are explicitly provisional or unresolved:
 - whether possession derivation is allowed without source validation
 - pair-level team context standardization
 
-## Recommended steps before full Phase 1 modeling
+## Status of steps before full Phase 1 modeling
 
-Before proceeding to full Phase 1 historical ingestion and model work, the project should complete:
+The historically recommended Phase 1A work is complete. Current status is:
 
-1. **Missing-history policy (adopted, provisional)**
-   - A provisional Phase 1 baseline policy has been adopted: preserve all pair observations, add a `complete`/`one_missing`/`both_missing` status, model on `complete` pairs, never zero-impute, retain other statuses for coverage analysis and a not-yet-defined no-history fallback
-   - Based on the observed 78.1% pair-level and 92.4% exposure-weighted (both minutes and possessions) complete-prior coverage from Phase 0F
-   - Subject to reevaluation after the Phase 1A multi-team pilot below
+1. **Uniform missing-history policy: exercised, modeling approval still pending**
+   - Preserve all observations; record `complete` / `one_missing` / `both_missing`; use complete-history pairs as the primary baseline population; never zero-impute; retain the other statuses for later evaluation of one universal fallback.
+   - Phase 1A applied this policy unchanged across four teams. Coverage varied materially, but the bounded sample does not establish roster type as the cause or a league-wide relationship.
 
-2. **Phase 1A: bounded multi-team ingestion and validation pilot**
-   - Acquire Base and Advanced pair-lineup data for 2–3 additional teams
-   - Verify response structure consistency and data quality across teams
-   - Re-run the prior-player join and coverage audit across those teams
-   - Test whether schemas, pair joins, prior coverage and missing-history patterns generalize beyond the Warriors
-   - Estimate total historical data volume for 30-team, multi-season ingestion
+2. **Phase 1A bounded multi-team ingestion and validation pilot: complete**
+   - Four teams, eight cached Base/Advanced assets and 736 observations were reconciled offline.
+   - Required schemas were identical, Base/Advanced joins were one-to-one, and one zero-possession row was retained and marked rate-target-ineligible.
 
-3. **Data pipeline and schema validation**
-   - Lock the canonical pair-identity rule
-   - Document data-quality filters and validation checks
-   - Establish caching and immutability guardrails
-   - Confirm the observed `Per100Possessions` `MIN` semantics before any feature or reliability use; a `Totals`-per-mode (or equivalent season-total-minutes) response is required for that purpose
+3. **Phase 1B data architecture and validation contract: complete as design**
+   - Stable keys, row-preserving flow, provenance, resumability, schema quarantine, player-feature registry and complete 30-team validation gates are specified and tested with constructed fixtures and existing caches.
+   - The manifest gate independently validates manifest identity, asset-ID reproducibility, asset-to-manifest identity and measure-specific schema fingerprints.
+   - No remaining teams, Parquet files, DuckDB catalog or model artifacts have been created.
 
-## Phase 1A pilot vs. full Phase 1 modeling: go/no-go
+4. **Still required before modeling or historical expansion**
+   - Approve the exposure policy, uniform missing-history treatment and time-ordered or rolling-origin validation design.
+   - Confirm multi-season consistency and the trustworthy prior-player reliability field; the observed `Per100Possessions` `MIN` is not season-total minutes.
 
-**Phase 1A bounded multi-team pilot: GO.** Its explicit purpose is to obtain the multi-team evidence not yet available; that evidence is not a precondition for starting the pilot. Phase 1A is scoped to schema/join/coverage validation across a small number of additional teams, not model training or full historical ingestion.
+## Phase 1A/Phase 1B vs. full modeling: go/no-go
+
+**Phase 1A: COMPLETE. Phase 1B architecture and ingestion-contract design: bounded GO and complete for its approved design scope.** The remaining-team manifest has not been executed.
 
 **Full Phase 1 modeling and historical expansion: NO-GO** until all of the following are demonstrated:
 
 - Pair identity parsing and canonicalization are reliable and tested
 - Base measure data structures are consistent across multiple teams and seasons
 - Prior-player feature records are available and joinable with stable IDs across multiple teams, not just one Warriors smoke test
-- The adopted missing-history policy has been reevaluated against Phase 1A multi-team results
+- The uniform missing-history treatment and primary-baseline use have final modeling approval
 - Rate-target fields are confirmed across multiple teams and seasons, including sparse-sample behavior
 - No same-season leakage is present in the feature pipeline
 - Cache layer and schema-validation tests pass without live network dependence
 - The feasibility report documents remaining gaps, data-quality limitations and untested assumptions
 
-If these checks are not satisfied after Phase 1A, the project should remain in bounded-pilot diagnostics until the blockers are resolved.
+Until these checks are satisfied, the project remains at the architecture-contract boundary rather than proceeding to historical expansion or modeling.
 
 If rate-target consistency cannot be established across teams and seasons, the project may explore alternative approaches (cumulative-differential modeling, semi-supervised learning on rank fields, or outcome-only studies) but should document these departures explicitly.
 
@@ -548,8 +550,6 @@ If rate-target consistency cannot be established across teams and seasons, the p
 
 Phase 0 research has established that the pair-fit v2 software-scaffold can be built, that live pair-lineup data is acquirable from stats.nba.com via direct HTTP requests, and that pair structure (identity, deduplication, validation) works correctly on observed Warriors data.
 
-Phase 0 has **not yet** established:
-- Multi-team and multi-season data consistency, including prior-player join consistency and adopted-policy validity beyond one team
-- Predictive model feasibility
+Subsequent Phase 1A work established bounded four-team schema, join and coverage behavior, and Phase 1B established the architecture contract. The project still has **not** established complete 30-team or multi-season consistency or predictive model feasibility.
 
-This report does not claim that rate-based efficiency targets are stable outside one Warriors response, that the 78.1% one-team pair-level prior-player coverage generalizes league-wide, or that a predictive model will succeed. Those questions require the bounded Phase 1A multi-team pilot and later modeling work. The missing-history policy adopted here is provisional and subject to reevaluation once Phase 1A results are available.
+This report does not claim that the four-team coverage pattern is caused by roster type, generalizes league-wide, or implies that a predictive model will succeed. Those questions require later approved historical work and chronological validation. The uniform missing-history statuses were successfully exercised in Phase 1A, but final modeling treatment remains subject to approval.

@@ -1,6 +1,9 @@
 # Phase 0 research-only cache and raw-output exclusions
 cache/
 raw/
+curated/
+catalog/
+manifests/runs/
 fixtures/*.json
 fixtures/*.csv
 *.parquet

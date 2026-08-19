@@ -19,6 +19,24 @@ Canonical pair identity should satisfy:
 
 The cache-audit schema fingerprint is separate from row volume. It consists of the result-set name, ordered column list, and column count. Row count is data volume, not schema identity.
 
+Phase 1B makes the previously fixed request context explicit. The full observation key is (`league_id`, `target_season`, `season_type`, `team_id`, canonical `player_1_id`, canonical `player_2_id`). Raw `GROUP_ID`, player names and row order are audit data, not join identity.
+
+## Phase 1B ingestion architecture contract
+
+The approved design direction is immutable raw JSON → row-preserving curated Parquet → reproducible DuckDB views. This is an architecture contract only; Phase 1B does not materialize Parquet or DuckDB.
+
+- Raw assets are identified by endpoint plus every normalized request parameter and tracked in a versioned resumable manifest. The release gate recomputes the normalized manifest ID, verifies each asset ID against its embedded identity, and independently verifies every embedded identity against the manifest's approved team/measure request.
+- Every acquisition event, cache serialization, schema fingerprint and downstream output has separate provenance.
+- Required `Overall` and `Lineups` fingerprints must be nonempty, unique, internally valid and recomputed as identical to the approved measure-specific schema contract. A stored `accepted` label is not sufficient; every non-identical schema fingerprint is quarantined for explicit review and no drift is silently coerced.
+- Base and Advanced use a full outer reconciliation on the full observation key so unmatched rows remain auditable.
+- The all-rows curated table retains target-ineligible and incomplete-history observations with explicit reasons/statuses.
+- DuckDB is a rebuildable catalog over Parquet, not the sole durable copy.
+- Prior-player features enter through a versioned, strict-pre-target-season source registry that can later add heliocentrism sources without changing pair identity.
+
+The complete design and 30-team release gates are in `PHASE1B_ARCHITECTURE.md`.
+
+`group_quantity` is part of raw request identity and is fixed at `2` for the strictly two-player `pair_observations` grain, preventing collisions with trio, quartet or five-player assets. Future higher-order work requires a new versioned group-observation contract with `group_size` and an ordered canonical player-ID collection. Aggregating pair-model predictions across a larger selection is a possible future interface behavior, but it is not equivalent to directly training a lineup model; neither path is implemented in this pass.
+
 ## Target definition
 
 The observed 2024-25 TeamDashLineups Advanced response directly provides team offensive rating (`OFF_RATING`) and defensive rating (`DEF_RATING`) while both players share the court.
@@ -101,7 +119,7 @@ Validation must be time-ordered or rolling-origin, with 2025-26 preserved as the
 
 This document does not claim that the final model is valid or that interaction effects are predictable. The purpose of Phase 0 is feasibility and data-contract validation only.
 
-The current research status is: Phase 1A bounded multi-team pilot complete. Base and Advanced schemas, canonical pair parsing, and Base-to-Advanced joins are consistent across four teams (Golden State Warriors, Boston Celtics, Washington Wizards, Brooklyn Nets; 736 combined pairs). Pair-level complete-prior coverage ranges from 57.2% (Washington Wizards) to 81.6% (Boston Celtics), combined 68.9% (507/736). The pattern is consistent with the deliberately selected roster profiles, but this four-team sample does not establish roster type as the cause or prove a league-wide relationship. Full details, exact numerators/denominators, and the bounded Phase 1B architecture/ingestion-design recommendation are in `PHASE1A_PILOT_REPORT.md`. Multi-season consistency and predictive feasibility remain unverified, and model training and historical expansion remain prohibited pending approval of the exposure policy, missing-history treatment, and validation design.
+The current research status is: Phase 1A bounded multi-team pilot complete, followed by Phase 1B architecture and ingestion-contract design. The Phase 1B contracts were replayed against only the existing four-team caches (8 raw assets, 736 unique full observation keys, identical Base/Advanced schemas). No remaining-team ingestion, Parquet/DuckDB materialization or modeling occurred. Multi-season consistency and predictive feasibility remain unverified, and model training and historical expansion remain prohibited pending approval of the exposure policy, missing-history treatment and validation design.
 
 ## Prior-player join audit (Phase 0F)
 

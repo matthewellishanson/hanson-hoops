@@ -1,14 +1,20 @@
 # Pair-fit v2 data dictionary
 
-This data dictionary covers the research-only Phase 0 scaffold and the bounded Phase 1A audit. It is intentionally provisional and subject to revision.
+This data dictionary covers the research-only Phase 0 scaffold, bounded Phase 1A audit and Phase 1B architecture contract. It is intentionally provisional and subject to revision.
 
 ## Pair identity fields
 
 - `pair_key`: canonical unordered pair key, typically represented as a tuple of two player IDs sorted to enforce A+B = B+A.
-- `player_a_id`: canonical first player ID in a pair record.
-- `player_b_id`: canonical second player ID in a pair record.
+- `league_id`: league namespace included in every Phase 1B season and observation key; NBA is currently `00`.
+- `target_season`: normalized NBA season label in `YYYY-YY` form.
+- `season_type`: normalized lowercase season-type slug, such as `regular-season`.
+- `team_id`: positive decimal-string team ID normalized without leading zeroes.
+- `player_1_id`: lexicographically first canonical player ID in a pair record.
+- `player_2_id`: lexicographically second canonical player ID in a pair record.
 - `GROUP_ID`: raw lineup/group identifier returned by the NBA endpoint.
 - `GROUP_NAME`: raw lineup/group label returned by the NBA endpoint.
+
+The stable `observation_key` is (`league_id`, `target_season`, `season_type`, `team_id`, `player_1_id`, `player_2_id`). `GROUP_ID`, names and source row order are never key components.
 
 ## Target fields
 
@@ -71,13 +77,48 @@ These are classified as follows:
 
 - `is_valid_pair`: boolean indicating whether the row passes the minimal pair validation checks.
 - `prior_history_status`: uniform Phase 1 baseline categorical field per pair: `complete` (both players have a prior-season record), `one_missing`, or `both_missing`. Complete-status pairs form the primary baseline population, subject independently to target eligibility. Other statuses are retained for coverage analysis and later evaluation of one universal no-history fallback (not yet defined). No pair is dropped, missing prior statistics are never zero-imputed, and no roster-specific policy is introduced. Phase 1A found the `complete` share varies from 57.2% to 81.6% across four pilot teams; the pattern is consistent with the selected roster profiles but does not establish roster type as the cause or a league-wide relationship.
-- `observation_key`: the canonical four-team-pilot observation key of (target season, team ID, canonical player 1 ID, canonical player 2 ID). The same player or pair on a different team is a distinct observation and is never deduplicated across teams.
+- `observation_key`: the full Phase 1B key defined above. Phase 1A's fixed NBA/regular-season context is now explicit. The same player or pair on another team, season or season type is a distinct observation.
 - `schema_fingerprint`: result-set name, ordered column list, and column count. Row count is data volume and is not part of schema identity.
+- `schema_drift_classification`: one of `identical`, `reordered`, `additive`, `subtractive`, `mixed`, `result_set_name_changed` or `invalid_fingerprint`. Only `identical` is accepted automatically; all other values quarantine the asset for review.
 - `duplicate_pair_flag`: indicates whether the canonical pair key appears more than once.
 - `missing_prior_player_flag`: indicates whether one or both players lack prior player features. Phase 0F observed this at 4/23 unique players (17.4%) and 40/183 pairs (21.9%) for the Warriors 2024-25 population against 2023-24 `LeagueDashPlayerStats`.
 - `possession_rate_target_eligible`: explicit boolean; false when Advanced `POSS` is missing or `POSS <= 0`, regardless of returned numeric rating values. This eligibility flag does not delete or alter the row.
+- `target_eligibility_reasons`: ordered list explaining derived ineligibility, including missing/nonnumeric possessions, nonpositive possessions and missing/nonnumeric required ratings.
 - `zero_or_missing_possession_flag`: identifies Advanced rows requiring the retained zero/missing-possession audit.
 - `zero_minute_flag`: measure-qualified audit flag. An Advanced zero can reflect rounding while Base `MIN` remains positive, so it must not overwrite the Base exposure value.
+- `base_row_present`, `advanced_row_present`: source-presence booleans produced by the row-preserving full outer reconciliation. An unmatched row is retained and blocks a clean-season release.
+
+## Phase 1B manifest and provenance fields
+
+- `contract_version`: version of the manifest, key and transformation contract.
+- `manifest_logical_identity`: complete normalized league, season, season type, numerically ordered team-ID set, canonical measure order, endpoint, `group_quantity`, and governed extra request parameters. The manifest ID is recomputed from this identity and must also agree with the externally approved release contract.
+- `manifest_id`: deterministic logical manifest identifier recomputed from `manifest_logical_identity`; not a response-content hash.
+- `raw_asset_id`: deterministic ID derived from endpoint plus every normalized request parameter. Validation separately proves that this ID matches the embedded asset identity and that the embedded identity matches the manifest's expected team/measure request.
+- `group_quantity`: raw request-identity field fixed at `2` for `pair_observations`; it prevents pair/trio/quartet/five-player raw-cache collisions. Higher-order observations require a new versioned contract with `group_size` and an ordered canonical player-ID collection.
+- `raw_asset_status`: `planned`, `acquired`, `verified`, `failed` or `quarantined`.
+- `acquired_at`, `http_status`: recorded source-event time and response status.
+- `response_body_bytes`: bytes received for the source event.
+- `raw_body_hash`: optional hash of exact received bytes.
+- `cache_file_bytes`: bytes in the serialized cache file.
+- `canonical_json_hash`: semantic parsed-JSON integrity hash under a documented algorithm.
+- `serialization_version`: serializer identity/settings required to interpret cache-file bytes.
+- `schema_verification.fingerprints`: nonempty fingerprints with unique result-set names and exactly one required `Overall` and `Lineups` entry. Each fingerprint contains result-set name, ordered columns and column count and must classify as `identical` against the approved measure-specific schema contract; a stored `accepted` status is insufficient by itself.
+- `input_asset_ids`, `input_canonical_json_hashes`: exact curated-output lineage inputs.
+- `transform_contract_version`: version of row reconciliation and field derivation logic.
+- `curated_file_hash`, `curated_file_bytes`, `curated_row_count`: future Parquet-output provenance; no such artifact exists in this design phase.
+
+## Player-feature registry fields
+
+- `feature_source_id`, `feature_source_version`: stable source and definition identity.
+- `feature_source_kind`, `feature_source_locator`: provider/endpoint or unresolved proposed-source locator without embedding credentials.
+- `feature_aggregation_contract`: declared meaning of one source row, including trade aggregation behavior.
+- `feature_season`, `player_id`: player-season join key, always earlier than the target season/cutoff.
+- `feature_source_status`: `observed`, `proposed` or `retired`.
+- `feature_family`: one or more of capability, role/style, physical context, reliability, team context, heliocentrism or unresolved.
+- `availability_rule`: must be `strictly_before_target_season` for registered prior-player sources.
+- `field_contract`: versioned source field definitions; candidate fields are not automatically model features.
+
+Future heliocentrism sources use the same registry. Their source, formula, denominator, grain, trade aggregation, missingness and availability timing must be documented before activation; Phase 1B selects none of them.
 
 ## Notes
 
@@ -86,3 +127,4 @@ These are classified as follows:
 - The pair identity is unordered and canonicalized to avoid double-counting A+B and B+A.
 - Future validation must be time-ordered or rolling-origin, preserve 2025-26 as the untouched final test season, and reject a random pair-row split because overlapping players and pairs violate row independence.
 - Phase 1B is limited to architecture and ingestion design. Model training and historical expansion remain prohibited until the exposure policy, uniform missing-history treatment, and validation design are approved.
+- The proposed Parquet and DuckDB fields describe future artifacts only; none were created in Phase 1B design verification.
