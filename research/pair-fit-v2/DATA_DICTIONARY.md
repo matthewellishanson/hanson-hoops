@@ -107,6 +107,17 @@ These are classified as follows:
 - `transform_contract_version`: version of row reconciliation and field derivation logic.
 - `curated_file_hash`, `curated_file_bytes`, `curated_row_count`: future Parquet-output provenance; no such artifact exists in this design phase.
 
+## Phase 1C operational manifest fields
+
+- `operational_manifest_version`: version of the persisted raw-season state machine.
+- `transition_sequence`, `transition_history`: monotonically ordered, atomically persisted asset-state changes.
+- `attempt_history`: one record per explicitly initiated Phase 1C transport attempt, including status, categorized failure or verified cache evidence, latency when an HTTP response exists, and response bytes.
+- `approved_schema_contract_id`: deterministic identifier for the measure-specific `Overall` and `Lineups` fingerprints used by the run.
+- `legacy_reconciliation`: explicit description of historical metadata format and fields unavailable from older pilot acquisitions; unknown values remain null and are not fabricated.
+- `metadata_relative_path`: Git-ignored sidecar containing the request identity, source event, cache evidence, and schema result for a newly acquired asset.
+- `authorization.maximum_new_live_requests`: persisted ceiling on Phase 1C transport attempts. The original 52-attempt ceiling was extended by exactly one user-authorized attempt tied to Charlotte Advanced; all 53 recorded attempts are now consumed.
+- `authorization.extensions`: auditable asset-specific additions to the original ceiling, including asset ID, added attempt count, timestamp, and authorization note.
+
 ## Player-feature registry fields
 
 - `feature_source_id`, `feature_source_version`: stable source and definition identity.

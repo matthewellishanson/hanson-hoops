@@ -5,7 +5,7 @@
 
 Historical Phase 0 conclusion: `one-team prior-player join feasibility quantified; provisional missing-history baseline policy adopted; multi-team scale remained pending at that checkpoint`.
 
-Current status: Phase 1A is complete. Its four-team, cache-replayable pilot confirmed identical Base/Advanced schemas and one-to-one joins for 736 observations while finding materially different prior-history coverage across the bounded sample; that pattern does not establish roster type as the cause or a league-wide relationship. Phase 1B now defines the design-only raw JSON → curated Parquet → DuckDB architecture and hardened manifest, provenance, schema-drift and complete-season validation contracts. No remaining-team ingestion, materialization or modeling has occurred.
+Current status: Phase 1A is complete. Its four-team, cache-replayable pilot confirmed identical Base/Advanced schemas and one-to-one joins for 736 observations while finding materially different prior-history coverage across the bounded sample; that pattern does not establish roster type as the cause or a league-wide relationship. Phase 1B defined the design-only raw JSON → curated Parquet → DuckDB architecture and hardened validation contracts. Phase 1C subsequently implemented the persisted raw manifest and completed the 30-team/60-asset request set: all 60 assets verify, all 5,297 Base and Advanced pair keys match one-to-one, and both complete-season gates pass. Four responses contain exactly 250 rows, so endpoint-returned population exhaustiveness remains explicitly uncertain for Philadelphia and Charlotte. No materialization or modeling has occurred.
 
 Phase 0 progress summary:
 

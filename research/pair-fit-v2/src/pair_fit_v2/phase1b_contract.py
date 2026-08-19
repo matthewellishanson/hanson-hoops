@@ -732,11 +732,29 @@ def validate_complete_season_manifest(
             unverified_assets.append(asset.get("asset_id"))
         source_event = asset.get("source_event", {})
         cache = asset.get("cache", {})
-        source_event_complete = (
+        modern_source_event_complete = (
             source_event.get("acquired_at")
             and source_event.get("http_status") == 200
             and isinstance(source_event.get("response_body_bytes"), int)
             and source_event.get("response_body_bytes") > 0
+        )
+        legacy_unknown_fields = set(source_event.get("unknown_fields", []))
+        legacy_source_event_complete = (
+            source_event.get("provenance_format") == "legacy-reconciled-v1"
+            and source_event.get("recorded_success") is True
+            and {
+                "acquired_at",
+                "http_status",
+                "response_body_bytes",
+                "raw_body_hash",
+            }.issubset(legacy_unknown_fields)
+            and source_event.get("acquired_at") is None
+            and source_event.get("http_status") is None
+            and source_event.get("response_body_bytes") is None
+            and source_event.get("raw_body_hash") is None
+        )
+        source_event_complete = (
+            modern_source_event_complete or legacy_source_event_complete
         )
         cache_provenance_complete = (
             cache.get("relative_path")

@@ -119,7 +119,7 @@ Validation must be time-ordered or rolling-origin, with 2025-26 preserved as the
 
 This document does not claim that the final model is valid or that interaction effects are predictable. The purpose of Phase 0 is feasibility and data-contract validation only.
 
-The current research status is: Phase 1A bounded multi-team pilot complete, followed by Phase 1B architecture and ingestion-contract design. The Phase 1B contracts were replayed against only the existing four-team caches (8 raw assets, 736 unique full observation keys, identical Base/Advanced schemas). No remaining-team ingestion, Parquet/DuckDB materialization or modeling occurred. Multi-season consistency and predictive feasibility remain unverified, and model training and historical expansion remain prohibited pending approval of the exposure policy, missing-history treatment and validation design.
+The current research status is: Phase 1A bounded multi-team pilot complete; Phase 1B architecture and ingestion-contract design complete; Phase 1C raw-season acquisition complete at 60/60 verified assets. Across all 30 teams, 5,297 Base/Advanced pairs match one-to-one with no unmatched or duplicate full observation keys; the complete-season manifest and clean raw-release gates pass. Philadelphia and Charlotte each returned exactly 250 rows per measure, which is a review signal but does not prove truncation; endpoint-returned pair-population exhaustiveness remains uncertain for those teams. No Parquet/DuckDB materialization or modeling occurred. Multi-season and predictive feasibility remain unverified, and model training remains prohibited pending the approved exposure, missing-history, and validation gates.
 
 ## Prior-player join audit (Phase 0F)
 
