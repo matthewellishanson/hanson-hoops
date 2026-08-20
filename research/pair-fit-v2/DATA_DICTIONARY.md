@@ -118,6 +118,23 @@ These are classified as follows:
 - `authorization.maximum_new_live_requests`: persisted ceiling on Phase 1C transport attempts. The original 52-attempt ceiling was extended by exactly one user-authorized attempt tied to Charlotte Advanced; all 53 recorded attempts are now consumed.
 - `authorization.extensions`: auditable asset-specific additions to the original ceiling, including asset ID, added attempt count, timestamp, and authorization note.
 
+## Phase 1D endpoint-diagnostic fields
+
+- `diagnostic_version`: versioned identity, sequencing, validation, and replay contract for the bounded population-exhaustiveness diagnostic.
+- `diagnostic_asset_id`: deterministic `phase1d-diagnostic-asset:` ID derived from endpoint and every normalized request parameter. The separate namespace and `phase1d/diagnostics/` cache path prevent collision with Phase 1C `raw-asset:` IDs and production raw-season paths.
+- `diagnostic_sequence`: fixed authorization order. Later requests remain untouched after a conclusive result or any request failure.
+- `diagnostic_identity`: complete endpoint, season, season type, league, team/filter, measure, group quantity, and endpoint-specific parameters, including `LastNGames`.
+- `diagnostic_status`: `planned`, `verified`, `failed`, or `verified_after_offline_revalidation`. The last value preserves the original stopped attempt while recording validation of the same immutable payload after a narrowly documented response-normalization correction; it is not a new request.
+- `diagnostic_attempt_count`: count of explicitly initiated live attempts. A failed attempt is never automatically retried.
+- `diagnostic_raw_body_hash`, `diagnostic_canonical_json_hash`, `diagnostic_response_body_bytes`, `diagnostic_latency_seconds`: exact diagnostic source/cache evidence, isolated from Phase 1C provenance.
+- `boundary_classification`: `boundary_signal_present` or `no_boundary_signal` for cache-only row-count/combinatorial evidence. A signal alone is not proof of truncation or omission.
+- `distinct_player_count`, `theoretical_unordered_pair_count`, `absent_theoretical_pair_count`: combinatorial diagnostics over valid returned pair IDs. Theoretical absence does not assert that every theoretical pair shared the court.
+- `maximum_rank_values`, `low_end_base_minutes`, `low_end_advanced_possessions`, `low_end_advanced_minutes`: measure-qualified endpoint-behavior diagnostics; never model features or eligibility thresholds.
+- `response_envelope.pagination_or_truncation_metadata`: explicit inspection result for page, total, limit, continuation, and truncation fields.
+- `matched_full_season_keys`, `diagnostic_only_keys`, `full_season_only_keys`: canonical unordered pair-key set comparison. Partial-window rows are not inserted into the full-season observation table.
+- `population_exhaustiveness_classification`: `proven_non_exhaustive` when at least one structurally valid same-season diagnostic key is outside the full-season set; otherwise `not_proven_exhaustive`. Absence of a new key never yields `proven_exhaustive`.
+- `offline_revalidation`: audit record for the Request 1 `PORound` empty-request/numeric-zero response normalization, including the original stopped error, zero additional live requests, unchanged later sequence, validation result, and pair-key comparison.
+
 ## Player-feature registry fields
 
 - `feature_source_id`, `feature_source_version`: stable source and definition identity.

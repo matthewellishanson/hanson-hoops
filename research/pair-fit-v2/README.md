@@ -4,11 +4,17 @@
 
 This folder contains the Phase 0 feasibility scaffold, Phase 1A evidence audit and Phase 1B architecture contracts for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
 
+## Phase 1D status
+
+Phase 1D is complete for its bounded endpoint-population diagnostic. One authorized Charlotte `TeamDashLineups` Base request with `LastNGames=41` returned 181 valid pair keys. Of those, 178 occur in Charlotte's verified full-season 250-row Base response and three do not. Because the shorter window is part of the same 2024-25 regular season, those three valid shorter-window-only keys prove that Charlotte's full-season endpoint response is `proven_non_exhaustive`. This proves omission, not a particular hard-cap implementation. The runner stopped after Request 1; the authorized Philadelphia and Charlotte `LeagueDashLineups` follow-ups were skipped. See `PHASE1D_ENDPOINT_EXHAUSTIVENESS_REPORT.md`.
+
+Historical expansion and modeling remain no-go pending a separately authorized recovery-feasibility phase. No omitted pairs were reconstructed, no partial-window ratings were aggregated, and no curated, Parquet, DuckDB, database, or model artifact was created.
+
 ## Phase 1C status
 
-Phase 1C implemented the Git-ignored persisted raw-season manifest, reconciled the eight pilot assets, and completed the bounded 30-team/60-asset request set after one explicitly authorized Charlotte Advanced continuation attempt. All 60 assets verify; 5,297 Base and 5,297 Advanced rows match one-to-one with no unmatched or duplicate full observation keys; the hardened complete-season and clean-release gates pass. Four responses contain exactly 250 rows, which remains a data-source exhaustiveness uncertainty rather than an automatic truncation classification. See `PHASE1C_RAW_SEASON_REPORT.md` for the request ledger, per-team rows, joins, schemas, exposure findings, and exact-boundary audit.
+Phase 1C implemented the Git-ignored persisted raw-season manifest, reconciled the eight pilot assets, and completed the bounded 30-team/60-asset request set after one explicitly authorized Charlotte Advanced continuation attempt. All 60 assets verify; 5,297 Base and 5,297 Advanced rows match one-to-one with no unmatched or duplicate full observation keys; the hardened complete-season and clean-release gates pass. At the Phase 1C checkpoint, four exact-250 responses were correctly treated as an unresolved data-source exhaustiveness signal. Phase 1D later superseded that uncertainty for Charlotte by proving its full-season returned population is non-exhaustive; Phase 1C request-set completeness and returned-row integrity remain unchanged. See `PHASE1C_RAW_SEASON_REPORT.md` and `PHASE1D_ENDPOINT_EXHAUSTIVENESS_REPORT.md`.
 
-No further request is authorized by the current manifest. Phase 1D, Parquet/DuckDB materialization, curated datasets, and modeling remain prohibited.
+No further Phase 1D diagnostic request was needed or made after the conclusive Charlotte result. Parquet/DuckDB materialization, curated datasets, historical expansion, and modeling remain prohibited.
 
 ## Phase 1B status
 
@@ -40,7 +46,8 @@ Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique 
 - Phase 1A pilot report: `PHASE1A_PILOT_REPORT.md`
 - Phase 1B architecture: `PHASE1B_ARCHITECTURE.md`
 - Phase 1C raw-season report: `PHASE1C_RAW_SEASON_REPORT.md`
-- Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py` and `tests/test_phase1b_architecture.py`
+- Phase 1D endpoint-exhaustiveness report: `PHASE1D_ENDPOINT_EXHAUSTIVENESS_REPORT.md`
+- Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`, `tests/test_phase1b_architecture.py`, and `tests/test_phase1d_exhaustiveness.py`
 
 ## Commands
 
@@ -72,4 +79,5 @@ python -c "import sys; sys.path.insert(0, r'.\src'); from pair_fit_v2.schema imp
 - Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`): schema/join behavior is consistent across four pilot teams; coverage varies materially but the sample does not establish roster type as the cause or a league-wide relationship. Phase 1B is a bounded go for architecture/ingestion design only; model training and historical expansion remain prohibited pending approval of the exposure, missing-history, and validation policies.
 - Phase 1B contracts (see `PHASE1B_ARCHITECTURE.md`) were design-only; Phase 1C later executed the bounded raw-manifest acquisition under explicit approval. Parquet/DuckDB materialization remains prohibited.
 - Phase 1C operational state is Git-ignored and replayable. Its original 52-attempt authorization plus the single asset-specific continuation are fully consumed; no further live request is authorized.
+- Phase 1D diagnostic state is separately Git-ignored and replayable. Charlotte's full-season returned pair population is proven non-exhaustive; do not treat the 5,297 returned observations as an exhaustive league-wide population without a defensible recovery method or explicit selection-bias limitation.
 - Keep `group_quantity=2` for `pair_observations`. It is part of raw request identity, so pair/trio/quartet/five-player requests cannot collide. Higher-order research requires a separate versioned group-observation contract; aggregating pair predictions across a larger selection would not be a directly trained lineup model.

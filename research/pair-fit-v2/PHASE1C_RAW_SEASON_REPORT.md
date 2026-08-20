@@ -6,6 +6,8 @@
 
 The 30-team/60-asset request set is complete and every returned row is validated. Four responses contain exactly 250 rows, however, and cached evidence cannot establish whether 250 is a server-side limit. Exhaustiveness of the endpoint-returned pair population therefore remains an explicit data-source uncertainty for Philadelphia and Charlotte.
 
+**Phase 1D follow-up (superseding only the unresolved Charlotte population conclusion):** A later authorized Charlotte `LastNGames=41` Base diagnostic found three valid pair keys outside Charlotte's full-season 250-row Base set. Charlotte's full-season returned population is therefore `proven_non_exhaustive`, although the evidence does not establish a hard top-250 implementation. Phase 1C's 30-team/60-asset request-set completeness, asset hashes, schemas, 5,297 returned-row integrity, and one-to-one Base/Advanced reconciliation remain unchanged. See `PHASE1D_ENDPOINT_EXHAUSTIVENESS_REPORT.md`.
+
 ## Starting state and authorization
 
 - Branch: `research/pair-fit-v2`
@@ -203,7 +205,7 @@ The manifest fixes the season/request identity and deterministic asset order. On
 
 ## Remaining work and recommendation
 
-Phase 1C is complete at the validated raw-cache and manifest layer. A next phase may design curated materialization only after explicitly accepting or resolving the exact-250 endpoint-exhaustiveness uncertainty; this report does not authorize or implement that work. The exposure policy, missing-history treatment, and time-ordered validation design remain prerequisites to model training.
+Phase 1C is complete at the validated raw-cache and manifest layer. At this checkpoint, a next phase could proceed only after accepting or resolving the exact-250 endpoint-exhaustiveness uncertainty. Phase 1D later proved non-exhaustiveness for Charlotte, so the superseding recommendation is a separate recovery-feasibility phase before curated materialization, historical expansion, or model training. The exposure policy, missing-history treatment, and time-ordered validation design remain additional prerequisites.
 
 No Parquet, DuckDB, Feather, database, curated analytical table, model, validation split, higher-order lineup ingestion, prior-player fetch, or other-season access occurred.
 
