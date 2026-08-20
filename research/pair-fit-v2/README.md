@@ -4,11 +4,17 @@
 
 This folder contains the Phase 0 feasibility scaffold, Phase 1A evidence audit and Phase 1B architecture contracts for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
 
+## Phase 1E status
+
+Phase 1E is complete for its bounded Charlotte recovery-feasibility scope. Two inclusive, non-overlapping `TeamDashLineups` windows returned 163 early and 177 late Base/Advanced rows. Their 257-key union contains all 250 immutable full-season Charlotte keys and seven recovered-only keys, including all three Phase 1D proving keys. Every audited additive Base total and Advanced `POSS` reproduced its full-season value for all 250 comparable pairs.
+
+Possession-weighted `OFF_RATING` recomposition stayed within `0.1`, but 9 `DEF_RATING` and 10 `NET_RATING` comparisons exceeded the required `0.2` bound. Those exceptions were not proven to be only documented rounding artifacts, so the Charlotte continuation gate failed and all four Philadelphia requests were skipped. The bounded classification is `window recovery demonstrated; target recomposition unresolved`; global population exhaustiveness remains unproven, no exposure threshold was selected, and no reconstructed target table was created. See `PHASE1E_RECOVERY_FEASIBILITY_REPORT.md`.
+
 ## Phase 1D status
 
 Phase 1D is complete for its bounded endpoint-population diagnostic. One authorized Charlotte `TeamDashLineups` Base request with `LastNGames=41` returned 181 valid pair keys. Of those, 178 occur in Charlotte's verified full-season 250-row Base response and three do not. Because the shorter window is part of the same 2024-25 regular season, those three valid shorter-window-only keys prove that Charlotte's full-season endpoint response is `proven_non_exhaustive`. This proves omission, not a particular hard-cap implementation. The runner stopped after Request 1; the authorized Philadelphia and Charlotte `LeagueDashLineups` follow-ups were skipped. See `PHASE1D_ENDPOINT_EXHAUSTIVENESS_REPORT.md`.
 
-Historical expansion and modeling remain no-go pending a separately authorized recovery-feasibility phase. No omitted pairs were reconstructed, no partial-window ratings were aggregated, and no curated, Parquet, DuckDB, database, or model artifact was created.
+This recommendation was current at the end of Phase 1D. Phase 1E subsequently ran the authorized non-overlapping-window study; it demonstrated Charlotte population recovery and exact additive-total reconstruction but left defensive/net target recomposition unresolved. Historical expansion and modeling remain no-go.
 
 ## Phase 1C status
 
@@ -47,7 +53,8 @@ Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique 
 - Phase 1B architecture: `PHASE1B_ARCHITECTURE.md`
 - Phase 1C raw-season report: `PHASE1C_RAW_SEASON_REPORT.md`
 - Phase 1D endpoint-exhaustiveness report: `PHASE1D_ENDPOINT_EXHAUSTIVENESS_REPORT.md`
-- Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`, `tests/test_phase1b_architecture.py`, and `tests/test_phase1d_exhaustiveness.py`
+- Phase 1E recovery-feasibility report: `PHASE1E_RECOVERY_FEASIBILITY_REPORT.md`
+- Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`, `tests/test_phase1b_architecture.py`, `tests/test_phase1d_exhaustiveness.py`, and `tests/test_phase1e_recovery.py`
 
 ## Commands
 
@@ -80,4 +87,5 @@ python -c "import sys; sys.path.insert(0, r'.\src'); from pair_fit_v2.schema imp
 - Phase 1B contracts (see `PHASE1B_ARCHITECTURE.md`) were design-only; Phase 1C later executed the bounded raw-manifest acquisition under explicit approval. Parquet/DuckDB materialization remains prohibited.
 - Phase 1C operational state is Git-ignored and replayable. Its original 52-attempt authorization plus the single asset-specific continuation are fully consumed; no further live request is authorized.
 - Phase 1D diagnostic state is separately Git-ignored and replayable. Charlotte's full-season returned pair population is proven non-exhaustive; do not treat the 5,297 returned observations as an exhaustive league-wide population without a defensible recovery method or explicit selection-bias limitation.
+- Phase 1E diagnostic state is also separately Git-ignored and replayable. Charlotte's two-window union recovers all 250 full-season keys plus seven omitted keys and exactly reproduces supported additive totals, but official defensive/net ratings are not yet validated for reconstruction. Do not average rate fields, treat the 257-key union as globally exhaustive, or use its target-season exposure as a predictive player-quality feature.
 - Keep `group_quantity=2` for `pair_observations`. It is part of raw request identity, so pair/trio/quartet/five-player requests cannot collide. Higher-order research requires a separate versioned group-observation contract; aggregating pair predictions across a larger selection would not be a directly trained lineup model.

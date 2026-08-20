@@ -99,7 +99,7 @@ Exact shorter-window-only evidence:
 |---|---|---:|---:|---|
 | `203901`, `1630163` | E. Payton - L. Ball | 1 | 1.133333 | yes |
 | `1629006`, `1631111` | J. Okogie - W. Moore Jr. | 1 | 2.316667 | yes |
-| `1630163`, `1630585` | L. Ball - M. Garrett | 1 | 1.516667 | yes |
+| `1630163`, `1630585` | LaMelo Ball - Marcus Garrett | 1 | 1.516667 | yes |
 
 Each key contains exactly two distinct positive NBA player IDs and appears once in the same-season Charlotte shorter-window response. None appears in Charlotte's verified full-season 250-row Base set. The result is therefore `proven_non_exhaustive` for Charlotte's full-season response.
 
@@ -138,6 +138,10 @@ The 5,297-row table cannot be treated as an exhaustive league-wide population wi
 Partial-window Advanced ratings cannot simply be averaged. Ratings are ratios over possessions; windows can have different denominators, rounding, and overlapping or missing exposure. Aggregation requires an approved numerator/denominator formula and validation that reconstructed values reproduce known full-season rows. Phase 1D implements none of these strategies.
 
 Recommended next phase: a separately authorized recovery-feasibility study before historical expansion, curated materialization, feature selection, thresholds, validation design execution, or model training.
+
+### Phase 1E follow-up
+
+The recommendation above records Phase 1D's endpoint state and has since been executed in bounded Phase 1E. Two inclusive, non-overlapping Charlotte windows produced a 257-key observed union containing all 250 full-season keys and seven recovered-only keys, including all three Phase 1D proving keys. Supported additive Base totals and Advanced `POSS` reconstructed exactly for the 250 comparable full-season pairs. However, possession-weighted `DEF_RATING` and `NET_RATING` did not remain within `0.2` for every row, and the exceptions were not proven to be only documented rounding artifacts. Phase 1E therefore stopped before Philadelphia with classification `window recovery demonstrated; target recomposition unresolved`. Global population exhaustiveness remains unproven; see `PHASE1E_RECOVERY_FEASIBILITY_REPORT.md`.
 
 ## Offline verification
 

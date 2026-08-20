@@ -135,6 +135,25 @@ These are classified as follows:
 - `population_exhaustiveness_classification`: `proven_non_exhaustive` when at least one structurally valid same-season diagnostic key is outside the full-season set; otherwise `not_proven_exhaustive`. Absence of a new key never yields `proven_exhaustive`.
 - `offline_revalidation`: audit record for the Request 1 `PORound` empty-request/numeric-zero response normalization, including the original stopped error, zero additional live requests, unchanged later sequence, validation result, and pair-key comparison.
 
+## Phase 1E window-recovery fields
+
+- `phase1e_version`: versioned request-identity, window, validation, aggregation, gate, and replay contract.
+- `window_label`, `date_from`, `date_to`: fixed early/late label and exact inclusive ISO date bounds. The two authorized windows are contiguous and non-overlapping.
+- `request_parameters`: normalized `TeamDashLineups` parameters, including measure, team, season, season type, group quantity, and endpoint-formatted `DateFrom`/`DateTo`.
+- `request_identity`, `diagnostic_asset_id`: deterministic complete identity and separate `phase1e-diagnostic-asset:` ID. Phase 1E payloads use `cache/phase1e/windows/` and cannot collide with Phase 1C `raw-asset:` or Phase 1D diagnostic IDs.
+- `attempt_count`, `status`, `latency_seconds`, `http_status`, `response_body_bytes`, `raw_body_hash`, `canonical_json_hash`, `acquired_at`, `validation_classification`: immutable acquisition and validation evidence. A failed request is never retried or followed by a later request.
+- `result_set_schemas`, `row_counts`: ordered header fingerprints and data volume for every response result set.
+- `window_reconciliation`: full-outer Base/Advanced pair audit containing matched, Base-only, Advanced-only, malformed, same-player, duplicate, possession-validity, and target-eligibility counts. Unmatched and ineligible rows remain visible.
+- `recovered_pair_count`, `full_season_keys_found`, `full_season_only_keys`, `window_union_only_keys`, `early_only_keys`, `late_only_keys`, `both_window_keys`: canonical unordered pair-set reconciliation. `window_union_only_keys` are “recovered-only”; a larger observed union is not a claim of global exhaustiveness.
+- `phase1d_proving_keys_present`: whether the Charlotte union contains all three keys that proved the full-season response non-exhaustive in Phase 1D.
+- `additive_field_audit`: field-by-field early-plus-late comparison against immutable full-season values. Supported Base fields are counts/totals validated empirically in Phase 1E; Advanced `POSS` is supported. Percentages, ranks, pace, rate fields, and Advanced `MIN` are not additive under this contract.
+- `rate_recomposition`: possession-weighted comparison for `OFF_RATING`, `DEF_RATING`, and `NET_RATING`, including comparable count, mean/median/maximum absolute error, counts and percentages within `0.1` and `0.2`, and every discrepancy above `0.2`. `POSS=0` rows are preserved but excluded from rate arithmetic.
+- `independent_rating_derivation`: evidence classification for rate calculations attempted from Base `PTS`/`PLUS_MINUS` and Advanced `POSS`; one of `validated`, `approximate`, `unsupported`, or `unresolved`.
+- `recovered_only_exposure`: player identities, defensibly additive games, summed Base `MIN`, summed Advanced `POSS`, and distribution summaries for recovered-only pairs. Base `MIN` is the exposure field; Advanced `MIN` remains audit-only.
+- `threshold_sensitivity`: diagnostic counts and possession shares at `POSS >= 1`, `5`, `10`, `25`, `50`, and `100`. These fields support eligibility/reliability research only and do not select a final threshold or define predictive player-quality features.
+- `continuation_gate`: named Charlotte gate conditions and results controlling whether Philadelphia requests are allowed.
+- `recovery_classification`: one of `window recovery not demonstrated`, `window recovery demonstrated; target recomposition unresolved`, `window recovery and target recomposition demonstrated for Charlotte only`, or `window recovery and target recomposition demonstrated for both affected team-seasons`. None asserts global population exhaustiveness.
+
 ## Player-feature registry fields
 
 - `feature_source_id`, `feature_source_version`: stable source and definition identity.
@@ -154,5 +173,5 @@ Future heliocentrism sources use the same registry. Their source, formula, denom
 - Phase 0 does not claim that the final feature set is correct or complete.
 - The pair identity is unordered and canonicalized to avoid double-counting A+B and B+A.
 - Future validation must be time-ordered or rolling-origin, preserve 2025-26 as the untouched final test season, and reject a random pair-row split because overlapping players and pairs violate row independence.
-- Phase 1B is limited to architecture and ingestion design. Model training and historical expansion remain prohibited until the exposure policy, uniform missing-history treatment, and validation design are approved.
+- Phase 1E demonstrated Charlotte window-population recovery and additive-total reconstruction but left defensive/net target recomposition unresolved. Model training and historical expansion remain prohibited until that target question and the exposure, uniform missing-history, and validation policies are resolved.
 - The proposed Parquet and DuckDB fields describe future artifacts only; none were created in Phase 1B design verification.
