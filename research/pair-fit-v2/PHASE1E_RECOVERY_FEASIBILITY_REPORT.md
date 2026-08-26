@@ -6,6 +6,10 @@
 
 Every audited additive Base total and Advanced `POSS` reproduced the official full-season value for all 250 comparable pairs. Ordinary averaging of rating fields was never used. Possession-weighted `OFF_RATING` recomposition was within `0.1` for every pair, but `DEF_RATING` and `NET_RATING` had errors over `0.2` for 9 and 10 pairs respectively, with maxima of `0.710112` and `0.694382`. Those exceptions were not proven to be only documented rounding artifacts. The Charlotte continuation gate therefore failed and all four Philadelphia requests were skipped.
 
+### Phase 1F follow-up
+
+Phase 1F preserves this historical gate result but separates cross-window reconstruction from direct full-season validity. Cache-only analysis found all 5,297 directly returned standard `NET_RATING` values coherent with directly returned `OFF_RATING - DEF_RATING` within `0.1`. Returned `POSS` empirically supports offensive reconstruction, while the Advanced schema exposes no separate opponent-possession denominator required by defensive-rating semantics. The window failure therefore does not invalidate direct full-season `NET_RATING`. Phase 1F classification is `direct full-season target semantics supported; reliability threshold unresolved`; no target or threshold was selected, and Philadelphia was not requested.
+
 ## Starting state and immutable baselines
 
 - Starting/final branch: `research/pair-fit-v2`

@@ -5,7 +5,7 @@
 
 Historical Phase 0 conclusion: `one-team prior-player join feasibility quantified; provisional missing-history baseline policy adopted; multi-team scale remained pending at that checkpoint`.
 
-Current status: Phase 1A is complete. Its four-team, cache-replayable pilot confirmed identical Base/Advanced schemas and one-to-one joins for 736 observations while finding materially different prior-history coverage across the bounded sample; that pattern does not establish roster type as the cause or a league-wide relationship. Phase 1B defined the design-only raw JSON → curated Parquet → DuckDB architecture and hardened validation contracts. Phase 1C subsequently implemented the persisted raw manifest and completed the 30-team/60-asset request set: all 60 assets verify, all 5,297 Base and Advanced returned pair keys match one-to-one, and both complete-season gates pass. Its exact-250 evidence left endpoint-population exhaustiveness unresolved at that checkpoint. Phase 1D later proved Charlotte's full-season `TeamDashLineups` response non-exhaustive: three valid pair keys in a same-season `LastNGames=41` response are absent from the full-season 250. Phase 1E then recovered a 257-key Charlotte union from two non-overlapping windows: it contains all 250 full-season keys and seven recovered-only keys, while supported additive totals reproduce exactly. Defensive/net rating recomposition remains unresolved, Philadelphia was skipped under the continuation gate, and global population exhaustiveness remains unproven. No materialization, threshold selection, historical expansion, or modeling has occurred.
+Current status: Phase 1A is complete. Its four-team, cache-replayable pilot confirmed identical Base/Advanced schemas and one-to-one joins for 736 observations while finding materially different prior-history coverage across the bounded sample; that pattern does not establish roster type as the cause or a league-wide relationship. Phase 1B defined the design-only raw JSON → curated Parquet → DuckDB architecture and hardened validation contracts. Phase 1C subsequently implemented the persisted raw manifest and completed the 30-team/60-asset request set: all 60 assets verify, all 5,297 Base and Advanced returned pair keys match one-to-one, and both complete-season gates pass. Phase 1D proved Charlotte's full-season response non-exhaustive. Phase 1E recovered a 257-key Charlotte union containing all 250 full-season keys plus seven recovered-only pairs and reproduced additive totals exactly. Phase 1F now supports the direct full-season standard target semantics while separating that result from unsafe defensive/net window reconstruction and unresolved low-exposure reliability. All 5,297 direct standard net ratings reconcile with direct offense minus defense within `0.1`; known Charlotte omissions do not survive `POSS >= 10`, but global exhaustiveness and a final threshold remain unproven. No materialization, threshold selection, historical expansion, or modeling has occurred.
 
 Phase 0 progress summary:
 
@@ -535,15 +535,22 @@ The historically recommended Phase 1A work is complete. Current status is:
    - Known omissions remain eligible at the evaluated `POSS >= 1` and `POSS >= 5` sensitivities and cease at `POSS >= 10`. This does not select a threshold or rule out unknown higher-exposure omissions.
    - The Charlotte gate therefore stopped the sequence before Philadelphia. The bounded result is `window recovery demonstrated; target recomposition unresolved`, not exhaustiveness.
 
-6. **Still required before modeling or historical expansion**
-   - Resolve a defensible target formulation or reconstruction contract, then validate the recovery method beyond Charlotte before historical expansion.
+6. **Phase 1F target semantics: direct standard target supported; reliability policy unresolved**
+   - All 5,297 directly returned full-season `NET_RATING` values reconcile with directly returned offense minus defense within `0.1`.
+   - Returned team `POSS` supports offensive reconstruction, while no separate opponent-possession denominator is exposed; unavailable denominator/precision prevents safe defensive/net window reconstruction but does not invalidate the direct target.
+   - All estimated fields are complete and internally coherent, but their exact methodology is unresolved and they are not selected.
+   - Charlotte temporal stability and league-wide extremes improve materially with exposure, but the high-exposure Charlotte sample is too narrow to establish policy.
+   - Classification: `direct full-season target semantics supported; reliability threshold unresolved`.
+
+7. **Still required before modeling or historical expansion**
+   - Finalize the target variant and exposure policy using broader temporal evidence; no final target or threshold is selected.
    - Do not ordinarily average partial-window Advanced ratings; any future recovery requires validated numerator/denominator behavior against known full-season rows.
    - Approve the exposure policy, uniform missing-history treatment and time-ordered or rolling-origin validation design.
    - Confirm multi-season consistency and the trustworthy prior-player reliability field; the observed `Per100Possessions` `MIN` is not season-total minutes.
 
 ## Phase 1A/Phase 1B vs. full modeling: go/no-go
 
-**Phase 1A: COMPLETE. Phase 1B architecture and ingestion-contract design: complete for its approved design scope. Phase 1C: complete 30-team raw request set. Phase 1D: Charlotte population non-exhaustiveness proven. Phase 1E: Charlotte window recovery/additive totals demonstrated; target recomposition unresolved.** The earlier statement that the remaining-team manifest had not been executed is superseded by Phase 1C, and the Phase 1D recommendation to run a recovery-feasibility study is superseded by Phase 1E's bounded result.
+**Phase 1A: COMPLETE. Phase 1B architecture and ingestion-contract design: complete for its approved design scope. Phase 1C: complete 30-team raw request set. Phase 1D: Charlotte population non-exhaustiveness proven. Phase 1E: Charlotte window recovery/additive totals demonstrated. Phase 1F: direct standard target semantics supported; reliability threshold unresolved.** The earlier statement that the remaining-team manifest had not been executed is superseded by Phase 1C, and Phase 1E's unresolved reconstruction result no longer implies that directly returned full-season `NET_RATING` is invalid.
 
 **Full Phase 1 modeling and historical expansion: NO-GO** until all of the following are demonstrated:
 
@@ -556,7 +563,7 @@ The historically recommended Phase 1A work is complete. Current status is:
 - Cache layer and schema-validation tests pass without live network dependence
 - The feasibility report documents remaining gaps, data-quality limitations and untested assumptions
 
-Until these checks and a defensible endpoint-population and target-reconstruction decision are satisfied, the project remains at the validated raw-evidence boundary rather than proceeding to historical expansion or modeling.
+Raw-only historical acquisition may be considered under separate authorization while threshold selection is deferred, provided the endpoint-returned population limitation is explicit and no curated/model-ready artifact is created. Modeling remains no-go until the listed policies and validation evidence are satisfied.
 
 If rate-target consistency cannot be established across teams and seasons, the project may explore alternative approaches (cumulative-differential modeling, semi-supervised learning on rank fields, or outcome-only studies) but should document these departures explicitly.
 
@@ -564,6 +571,6 @@ If rate-target consistency cannot be established across teams and seasons, the p
 
 Phase 0 research has established that the pair-fit v2 software-scaffold can be built, that live pair-lineup data is acquirable from stats.nba.com via direct HTTP requests, and that pair structure (identity, deduplication, validation) works correctly on observed Warriors data.
 
-Subsequent Phase 1A work established bounded four-team schema, join and coverage behavior, Phase 1B established the architecture contract, and Phase 1C established request-set completeness and returned-row integrity for all 30 teams. Phase 1D demonstrated that those properties are distinct from population exhaustiveness by proving Charlotte's full-season response omitted valid season pairs. Phase 1E demonstrated a larger observed Charlotte window-union population and exact supported additive totals, but not trustworthy reconstruction of every official target rate or portability to Philadelphia. The project still has **not** established an exhaustive recoverable 30-team population, multi-season consistency, or predictive model feasibility.
+Subsequent Phase 1A work established bounded four-team schema, join and coverage behavior, Phase 1B established the architecture contract, and Phase 1C established request-set completeness and returned-row integrity for all 30 teams. Phase 1D proved Charlotte's full-season response omitted valid season pairs. Phase 1E demonstrated a larger observed Charlotte window-union population and exact supported additive totals. Phase 1F established that direct standard full-season target semantics remain supported despite unsafe defensive/net window reconstruction, while reliability policy remains unresolved. The project still has **not** established an exhaustive recoverable 30-team population, multi-season consistency, or predictive model feasibility.
 
 This report does not claim that the four-team coverage pattern is caused by roster type, generalizes league-wide, or implies that a predictive model will succeed. Those questions require later approved historical work and chronological validation. The uniform missing-history statuses were successfully exercised in Phase 1A, but final modeling treatment remains subject to approval.

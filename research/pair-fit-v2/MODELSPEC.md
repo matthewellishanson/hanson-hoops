@@ -39,13 +39,13 @@ The complete design and 30-team release gates are in `PHASE1B_ARCHITECTURE.md`.
 
 ## Target definition
 
-The observed 2024-25 TeamDashLineups Advanced response directly provides team offensive rating (`OFF_RATING`) and defensive rating (`DEF_RATING`) while both players share the court.
+The observed 2024-25 TeamDashLineups Advanced response directly provides team offensive rating (`OFF_RATING`) and defensive rating (`DEF_RATING`) while both players share the court. These rates describe the team's shared-court performance with the pair present, including the other three teammates, opponents, and context. They are not individual player ratings, pair-only box-score rates, or on/off differentials.
 
 The provisional primary rate target is `NET_RATING`, with the expected relationship:
 
 - `NET_RATING` = `OFF_RATING` - `DEF_RATING`, subject to displayed rounding
 
-This target-availability relationship was observed across all four Phase 1A pilot teams; it is not evidence of predictive validity. The Base-measure `PLUS_MINUS` field is a cumulative on-court team point differential; it is neither net rating nor an on/off statistic and is not substituted for the rate target.
+Phase 1F confirms this direct identity within `0.1` for all 5,297 Phase 1C rows. Direct full-season semantic/internal validity is separate from cross-window recomposability and exposure reliability. Standard offense recomposes with returned team `POSS`; defense requires opponent possessions, which are not separately exposed, so defensive/net window reconstruction is not approved. That does not invalidate directly returned full-season `NET_RATING`. Estimated `E_` variants are complete and internally coherent but their exact formula is unresolved and none is selected. This target-availability relationship is not evidence of predictive validity. Base `PLUS_MINUS` is cumulative team point differential; it is neither net rating nor on/off and is not substituted for the rate target.
 
 The central research question is whether a supervised projection can estimate expected shared-court team performance for a selected pair, given prior-period player capability and standardized context.
 
@@ -74,7 +74,7 @@ The target-season pair performance is predicted using information available befo
 
 Minutes and possessions are treated as reliability and sample-size information, not as player-quality features. Base `MIN` is the shared-minute exposure field because it preserves fractional precision; Advanced `POSS` is possession exposure. Advanced `MIN` is retained as returned but is not assumed interchangeable with Base `MIN` at sparse exposure.
 
-Rows with missing `POSS` or `POSS <= 0` are retained unchanged for audit but are ineligible for a possession-based rate target, even if the endpoint returns numeric offensive, defensive, or net ratings. Phase 1A does not select a positive minimum-minute or minimum-possession threshold.
+Rows with missing `POSS` or `POSS <= 0` are retained unchanged for audit but are ineligible for a possession-based rate target, even if the endpoint returns numeric offensive, defensive, or net ratings. Phase 1F finds materially lower instability and fewer extreme values at higher exposure, but Charlotte alone is insufficient to select a positive minimum-minute or minimum-possession threshold.
 
 Usage is treated as an offensive-role and possession-ending-burden feature, not as inherent player quality or a reliability metric.
 
@@ -119,7 +119,7 @@ Validation must be time-ordered or rolling-origin, with 2025-26 preserved as the
 
 This document does not claim that the final model is valid or that interaction effects are predictable. The purpose of Phase 0 is feasibility and data-contract validation only.
 
-The current research status is: Phase 1A bounded multi-team pilot complete; Phase 1B architecture and ingestion-contract design complete; Phase 1C raw-season acquisition complete at 60/60 verified assets; Phase 1D endpoint omission proven for Charlotte; and Phase 1E bounded Charlotte recovery feasibility complete. Across all 30 teams, 5,297 Base/Advanced returned pairs match one-to-one with no unmatched or duplicate full observation keys; the complete-season manifest and clean raw-release gates pass. Phase 1E's two-window Charlotte union contains all 250 full-season keys plus seven recovered-only keys, and supported additive Base totals plus Advanced `POSS` reproduce the immutable full-season values for all 250 comparable pairs. This demonstrates a larger observed window-union population, not global exhaustiveness. Possession-weighted `OFF_RATING` met the `0.2` audit bound, but `DEF_RATING` and `NET_RATING` did not do so for every row; target recomposition is therefore unresolved, no recovered-only target values are approved, and Philadelphia was not requested after the Charlotte gate failed. No positive exposure threshold was selected. Multi-season and predictive feasibility remain unverified, and historical expansion/model training remain prohibited pending a defensible target-reconstruction decision plus the approved exposure, missing-history, and validation gates.
+The current research status is: Phase 1A bounded multi-team pilot complete; Phase 1B architecture and ingestion-contract design complete; Phase 1C raw-season acquisition complete at 60/60 verified assets; Phase 1D endpoint omission proven for Charlotte; Phase 1E bounded Charlotte recovery feasibility complete; and Phase 1F cache-only target semantics complete. Across all 30 teams, 5,297 Base/Advanced returned pairs match one-to-one, and all directly returned standard net ratings reconcile with direct offense minus defense within `0.1`. Phase 1F supports direct full-season standard target semantics while leaving defensive/net window reconstruction unsupported with available denominators and the reliability threshold unresolved. The Charlotte union remains a larger observed population, not proof of global exhaustiveness; no known recovered-only pair has 10 possessions. No final target, positive exposure threshold, recovered-only target value, materialization, historical expansion, or model was selected or created. Multi-season and predictive feasibility remain unverified.
 
 ## Prior-player join audit (Phase 0F)
 
