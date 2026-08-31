@@ -4,6 +4,12 @@
 
 This folder contains the Phase 0 feasibility scaffold, Phase 1A evidence audit and Phase 1B architecture contracts for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
 
+## Phase 2A status
+
+The bounded 2023-24 canary supports the historical pair-acquisition path but leaves the 2022-23 prior-player join unresolved. All ten five-team `TeamDashLineups` Base/Advanced assets verified with schemas identical to 2024-25; their 880 pair keys reconcile one-to-one and all direct standard rating identities are rounding-consistent. No 250-row boundary or nonpositive possession appeared.
+
+The 2022-23 Base/Per100 player response added `FP_HIGH_SCORE` and `FP_HIGH_SCORE_RANK`, so it was quarantined and the subsequent Totals request was skipped. Classification: `historical pair acquisition supported; prior-season join unresolved`. Complete 2023-24 acquisition is not yet authorized; a separate cache-first player-schema decision and Totals/minutes audit is required. See `PHASE2A_HISTORICAL_CANARY_REPORT.md`.
+
 ## Phase 1F status
 
 Phase 1F is complete as a cache-only target-semantics and preliminary reliability audit. Directly returned full-season standard `NET_RATING` is internally coherent with `OFF_RATING - DEF_RATING` within `0.1` for all 5,297 Phase 1C rows. Returned `POSS` reproduces standard offense but the response exposes no separate opponent-possession denominator, explaining why team-`POSS` weighting is not established for defensive or net reconstruction. This window-recomposition limitation does not invalidate the direct full-season target.
@@ -61,6 +67,7 @@ Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique 
 - Phase 1D endpoint-exhaustiveness report: `PHASE1D_ENDPOINT_EXHAUSTIVENESS_REPORT.md`
 - Phase 1E recovery-feasibility report: `PHASE1E_RECOVERY_FEASIBILITY_REPORT.md`
 - Phase 1F target-semantics report: `PHASE1F_TARGET_SEMANTICS_REPORT.md`
+- Phase 2A historical-canary report: `PHASE2A_HISTORICAL_CANARY_REPORT.md`
 - Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`, `tests/test_phase1b_architecture.py`, `tests/test_phase1d_exhaustiveness.py`, and `tests/test_phase1e_recovery.py`
 
 ## Commands

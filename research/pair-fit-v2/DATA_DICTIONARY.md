@@ -48,6 +48,8 @@ Phase 1F requires three independent status checks for every candidate: direct fu
 
 The exact final feature matrix is not yet selected. Phase 0F confirmed the observed 2023-24 `LeagueDashPlayerStats` (Base, Per100Possessions) schema returns, per player:
 
+Phase 2A observed that the 2022-23 response adds `FP_HIGH_SCORE` and `FP_HIGH_SCORE_RANK` relative to that approved 2023-24 schema. Those fields are quarantined schema evidence only: their semantics are not approved, they are not selected features, and they were not joined. The 2022-23 Totals response was skipped, so Totals `MIN` remains unvalidated as season-total minutes.
+
 - `PLAYER_ID`, `PLAYER_NAME`: stable identity fields. Joins must use `PLAYER_ID` only, never `PLAYER_NAME`.
 - `TEAM_ID`, `TEAM_ABBREVIATION`, `TEAM_COUNT`: team context; `TEAM_COUNT > 1` indicates a player traded during the season, with the endpoint returning one aggregate row rather than one row per team stint.
 - `AGE`, `GP`: identity/sample-size context. `GP` can exceed 82 for a traded player because the two teams involved may have played a different number of games by the trade date; this is a valid combined-team total, not an error, and must not be capped or rejected.
