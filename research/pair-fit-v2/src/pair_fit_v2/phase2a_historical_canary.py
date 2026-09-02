@@ -74,6 +74,9 @@ TIMEOUT_SECONDS = 30
 MANIFEST_VERSION = "phase2a.historical-canary.v1"
 SERIALIZATION_VERSION = "raw-response-body.v1"
 CANONICALIZATION = "sha256-json-sort-keys.v1"
+PLAYER_SCHEMA_V1 = "phase2a.player-base.v1"
+PLAYER_SCHEMA_V2 = "phase2a.player-base.v2"
+REVIEWED_PLAYER_ADDITIONS = ("FP_HIGH_SCORE", "FP_HIGH_SCORE_RANK")
 
 TEAMS = (
     ("1610612744", "Golden State Warriors", "original Phase 0 canary continuity"),
@@ -239,6 +242,10 @@ def build_manifest(pair_schemas: Mapping[str, Any], player_schema: Mapping[str, 
         "pair_schema_contract_id": stable_contract_id("schema-contract", pair_schemas),
         "player_schema_contract": deepcopy(player_schema),
         "player_schema_contract_id": stable_contract_id("schema-contract", player_schema),
+        "active_player_schema_version": PLAYER_SCHEMA_V1,
+        "active_player_schema_contract": None,
+        "player_schema_reviews": [],
+        "phase2a1_totals_authorization": None,
         "authorization": {"maximum_live_attempts": MAX_LIVE_ATTEMPTS, "retries": 0},
         "team_directory": {
             tid: {"team_name": name, "diversity_rationale": rationale}
@@ -299,6 +306,70 @@ def validate_manifest(manifest: Mapping[str, Any], expected: Mapping[str, Any]) 
         if not str(path).startswith("phase2a/raw/"):
             raise ValueError("Phase 2A cache escaped its namespace")
         ids.add(asset["asset_id"]); paths.add(path)
+    reviews = manifest.get("player_schema_reviews", [])
+    active_version = manifest.get("active_player_schema_version", PLAYER_SCHEMA_V1)
+    active_contract = manifest.get("active_player_schema_contract")
+    if not isinstance(reviews, list) or len(reviews) > 1:
+        raise ValueError("Phase 2A permits at most one reviewed player-schema promotion")
+    if not reviews:
+        if active_version != PLAYER_SCHEMA_V1 or active_contract not in (None, expected["player_schema_contract"]):
+            raise ValueError("Unreviewed player schema cannot replace the v1 contract")
+    else:
+        review = reviews[0]
+        if review.get("approved_schema_version") != PLAYER_SCHEMA_V2:
+            raise ValueError("Reviewed player schema version mismatch")
+        if active_version != PLAYER_SCHEMA_V2 or active_contract != review.get("approved_schema_contract"):
+            raise ValueError("Active player schema does not match its review event")
+        if review.get("approved_schema_contract_id") != stable_contract_id(
+            "schema-contract", review["approved_schema_contract"]
+        ):
+            raise ValueError("Reviewed player schema contract ID mismatch")
+        reviewed_fingerprint = review["approved_schema_contract"].get("LeagueDashPlayerStats", {})
+        base_fingerprint = expected["player_schema_contract"]["LeagueDashPlayerStats"]
+        reviewed_drift = schema_drift_report(base_fingerprint, reviewed_fingerprint)
+        if (
+            reviewed_drift["classification"] != "additive"
+            or tuple(reviewed_drift["additional_columns"]) != REVIEWED_PLAYER_ADDITIONS
+            or reviewed_fingerprint.get("column_count") != 69
+        ):
+            raise ValueError("Reviewed player schema is not the exact approved additive fingerprint")
+        review_identity = {
+            "asset_id": review.get("asset_id"),
+            "from_schema_version": review.get("from_schema_version"),
+            "approved_schema_version": review.get("approved_schema_version"),
+            "approved_schema_contract_id": review.get("approved_schema_contract_id"),
+            "raw_body_hash": review.get("raw_body_hash"),
+            "canonical_json_hash": review.get("canonical_json_hash"),
+        }
+        if review.get("review_event_id") != stable_contract_id("phase2a-schema-review", review_identity):
+            raise ValueError("Reviewed player schema event ID mismatch")
+        request_11 = assets[10]
+        if (
+            review.get("asset_id") != request_11.get("asset_id")
+            or review.get("raw_body_hash") != request_11.get("cache", {}).get("raw_body_hash")
+            or review.get("canonical_json_hash") != request_11.get("cache", {}).get("canonical_json_hash")
+            or review.get("original_attempt_count") != 1
+        ):
+            raise ValueError("Reviewed schema event does not match promoted request 11")
+    authorization = manifest.get("phase2a1_totals_authorization")
+    if authorization is not None:
+        if not isinstance(authorization, Mapping):
+            raise ValueError("Phase 2A.1 Totals authorization is malformed")
+        totals_id = diagnostic_asset_id(player_identity("Totals"))
+        authorization_identity = {
+            "asset_id": authorization.get("asset_id"),
+            "maximum_new_attempts": authorization.get("maximum_new_attempts"),
+            "request_identity": authorization.get("request_identity"),
+        }
+        if (
+            authorization.get("asset_id") != totals_id
+            or authorization.get("maximum_new_attempts") != 1
+            or authorization.get("request_identity") != player_identity("Totals")
+            or authorization.get("request_11_retry_authorized") is not False
+            or authorization.get("authorization_id")
+            != stable_contract_id("phase2a1-totals-authorization", authorization_identity)
+        ):
+            raise ValueError("Phase 2A.1 authorization must name only the Totals asset")
 
 
 class CanaryStore:
@@ -333,6 +404,8 @@ class CanaryStore:
             "ledger_version": "phase2a.attempt-ledger.v1",
             "manifest_id": manifest["manifest_id"],
             "authorization": manifest["authorization"],
+            "player_schema_reviews": manifest.get("player_schema_reviews", []),
+            "phase2a1_totals_authorization": manifest.get("phase2a1_totals_authorization"),
             "attempts": [
                 {"ordinal": a["ordinal"], "asset_id": a["asset_id"], "identity": a["identity"],
                  "status": a["status"], "attempt_history": a["attempt_history"], "last_error": a["last_error"]}
@@ -438,7 +511,7 @@ def validate_response(payload: Mapping[str, Any], identity: Mapping[str, Any], m
         expected = manifest["pair_schema_contract"][identity["parameters"]["measure_type"]]
     else:
         validation = _validate_player_payload(payload)
-        expected = manifest["player_schema_contract"]
+        expected = manifest.get("active_player_schema_contract") or manifest["player_schema_contract"]
     actual = {item["name"]: item for item in validation["fingerprints"]}
     drift = {}
     for name in set(expected) | set(actual):
@@ -509,7 +582,8 @@ def _result(manifest: Mapping[str, Any], **extra: Any) -> dict[str, Any]:
 def run_acquisition(store: CanaryStore, *, dry_run: bool = True, live_acquisition: bool = False,
                     timeout_seconds: int = TIMEOUT_SECONDS, delay_seconds: float = 1.0,
                     transport: Callable[[Mapping[str, Any], int], TransportResult] | None = None,
-                    sleep_fn: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+                    sleep_fn: Callable[[float], None] = time.sleep,
+                    authorized_asset_id: str | None = None) -> dict[str, Any]:
     if dry_run:
         return dry_run_plan(store)
     if not live_acquisition:
@@ -518,6 +592,10 @@ def run_acquisition(store: CanaryStore, *, dry_run: bool = True, live_acquisitio
         raise ValueError("Phase 2A requires timeout=30 and a nonnegative delay")
     transport = transport or direct_transport
     manifest = store.load()
+    if authorized_asset_id is not None:
+        authorization = manifest.get("phase2a1_totals_authorization") or {}
+        if authorization.get("asset_id") != authorized_asset_id:
+            raise ValueError("Asset-specific Phase 2A.1 authorization is missing")
     attempts_so_far = sum(len(a["attempt_history"]) for a in manifest["raw_assets"])
     if attempts_so_far > MAX_LIVE_ATTEMPTS:
         raise ValueError("Live-attempt budget already exceeded")
@@ -532,6 +610,8 @@ def run_acquisition(store: CanaryStore, *, dry_run: bool = True, live_acquisitio
             continue
         if asset["status"] != "planned":
             return _result(manifest, completed=False, stop_category=f"existing_{asset['status']}")
+        if authorized_asset_id is not None and asset["asset_id"] != authorized_asset_id:
+            return _result(manifest, completed=False, stop_category="asset_not_authorized")
         if asset["attempt_count"] or attempts_so_far >= MAX_LIVE_ATTEMPTS:
             return _result(manifest, completed=False, stop_category="retry_or_budget_prohibited")
         cache_path = store.cache_root / asset["cache"]["relative_path"]
@@ -600,6 +680,186 @@ def run_acquisition(store: CanaryStore, *, dry_run: bool = True, live_acquisitio
         if asset["ordinal"] < len(manifest["raw_assets"]):
             sleep_fn(delay_seconds)
     return _result(manifest, completed=True, stop_category=None)
+
+
+def reviewed_promote_player_per100(
+    store: CanaryStore,
+    *,
+    review_note: str,
+) -> dict[str, Any]:
+    """Approve and promote the preserved request-11 body without networking."""
+    if not review_note.strip():
+        raise ValueError("A nonempty schema-review note is required")
+    manifest = store.load()
+    asset = manifest["raw_assets"][10]
+    if manifest.get("player_schema_reviews"):
+        raise ValueError("The player schema has already been reviewed")
+    if asset["status"] != "quarantined" or asset["attempt_count"] != 1:
+        raise ValueError("Request 11 must have exactly one quarantined attempt")
+    original_attempt = deepcopy(asset["attempt_history"])
+    attempt = asset["attempt_history"][0]
+    if attempt.get("error_category") != "schema_quarantine":
+        raise ValueError("Request 11 was not quarantined for schema drift")
+    relative_quarantine = attempt.get("preserved_response_path")
+    if not relative_quarantine:
+        raise ValueError("Request 11 lacks preserved quarantine evidence")
+    quarantine_path = store.cache_root / relative_quarantine
+    body = quarantine_path.read_bytes()
+    body_hash_before = raw_body_hash(body)
+    payload = json.loads(body.decode("utf-8"))
+    canonical_hash_before = canonical_json_hash(payload)
+    _validate_returned_parameters(payload, asset["identity"])
+    validation = _validate_player_payload(payload)
+    actual_contract = {item["name"]: item for item in validation["fingerprints"]}
+    base_contract = manifest["player_schema_contract"]
+    drift = schema_drift_report(
+        base_contract["LeagueDashPlayerStats"],
+        actual_contract["LeagueDashPlayerStats"],
+    )
+    if (
+        drift["classification"] != "additive"
+        or tuple(drift["additional_columns"]) != REVIEWED_PLAYER_ADDITIONS
+        or drift["missing_columns"]
+        or validation["row_counts"].get("LeagueDashPlayerStats") != 539
+        or actual_contract["LeagueDashPlayerStats"]["column_count"] != 69
+    ):
+        raise ValueError(f"Preserved response is not the exact reviewed fingerprint: {drift}")
+    recorded = asset.get("schema_verification") or {}
+    if recorded.get("raw_body_hash") not in (None, body_hash_before):
+        raise ValueError("Quarantine raw-body hash no longer matches recorded evidence")
+    if recorded.get("canonical_json_hash") not in (None, canonical_hash_before):
+        raise ValueError("Quarantine canonical hash no longer matches recorded evidence")
+    approved_contract = actual_contract
+    approved_contract_id = stable_contract_id("schema-contract", approved_contract)
+    review_identity = {
+        "asset_id": asset["asset_id"],
+        "from_schema_version": PLAYER_SCHEMA_V1,
+        "approved_schema_version": PLAYER_SCHEMA_V2,
+        "approved_schema_contract_id": approved_contract_id,
+        "raw_body_hash": body_hash_before,
+        "canonical_json_hash": canonical_hash_before,
+    }
+    review_event = {
+        "review_event_id": stable_contract_id("phase2a-schema-review", review_identity),
+        **review_identity,
+        "reviewed_at": store.clock(),
+        "review_note": review_note.strip(),
+        "decision": "approved_exact_additive_fingerprint",
+        "approved_additional_columns": list(REVIEWED_PLAYER_ADDITIONS),
+        "approved_schema_contract": deepcopy(approved_contract),
+        "quarantine_relative_path": relative_quarantine,
+        "quarantine_retained": True,
+        "original_attempt_count": asset["attempt_count"],
+        "original_attempt_unchanged": True,
+    }
+    cache_path = store.cache_root / asset["cache"]["relative_path"]
+    metadata_path = store.cache_root / asset["cache"]["metadata_relative_path"]
+    if cache_path.exists() or metadata_path.exists():
+        raise FileExistsError("Reviewed-promotion cache destination already exists")
+    atomic_write_bytes_new(cache_path, body)
+    body_after = cache_path.read_bytes()
+    payload_after = json.loads(body_after.decode("utf-8"))
+    body_hash_after = raw_body_hash(body_after)
+    canonical_hash_after = canonical_json_hash(payload_after)
+    if body_after != body or body_hash_after != body_hash_before or canonical_hash_after != canonical_hash_before:
+        raise ValueError("Reviewed promotion changed preserved response bytes or hashes")
+    manifest["active_player_schema_version"] = PLAYER_SCHEMA_V2
+    manifest["active_player_schema_contract"] = deepcopy(approved_contract)
+    manifest["player_schema_reviews"] = [review_event]
+    asset["cache"].update({
+        "cache_file_bytes": len(body_after),
+        "canonical_json_hash": canonical_hash_after,
+        "raw_body_hash": body_hash_after,
+        "canonical_json_hash_algorithm": CANONICALIZATION,
+        "serialization_version": SERIALIZATION_VERSION,
+    })
+    asset["source_event"] = {
+        "provenance_format": "phase2a-reviewed-promotion-v1",
+        "promoted_at": store.clock(),
+        "review_event_id": review_event["review_event_id"],
+        "original_attempt_number": 1,
+        "original_http_status": attempt.get("http_status"),
+        "response_body_bytes": len(body),
+        "raw_body_hash": body_hash_before,
+        "quarantine_relative_path": relative_quarantine,
+    }
+    accepted = validate_response(payload_after, asset["identity"], manifest)
+    if not accepted["accepted"]:
+        raise ValueError("Approved v2 schema did not validate after promotion")
+    asset["schema_verification"] = {
+        "status": "accepted_after_review",
+        "approved_schema_version": PLAYER_SCHEMA_V2,
+        "review_event_id": review_event["review_event_id"],
+        **accepted,
+    }
+    asset.setdefault("schema_review_history", []).append(deepcopy(review_event))
+    asset["last_error"] = None
+    atomic_write_json(metadata_path, {
+        "asset_id": asset["asset_id"],
+        "identity": asset["identity"],
+        "source_event": asset["source_event"],
+        "cache": asset["cache"],
+        "schema_verification": asset["schema_verification"],
+        "schema_review_event": review_event,
+    })
+    if asset["attempt_history"] != original_attempt:
+        raise ValueError("Reviewed promotion altered the original live attempt")
+    store.transition(
+        manifest,
+        asset,
+        "verified",
+        "reviewed_schema_promotion",
+        review_event["review_event_id"],
+    )
+    replay = verify_asset_cache(asset, store.cache_root, manifest)
+    if asset["attempt_history"] != original_attempt or not quarantine_path.is_file():
+        raise ValueError("Promotion did not preserve original attempt/quarantine evidence")
+    return {
+        "network_calls": 0,
+        "asset_id": asset["asset_id"],
+        "review_event_id": review_event["review_event_id"],
+        "approved_schema_version": PLAYER_SCHEMA_V2,
+        "row_counts": replay["row_counts"],
+        "raw_body_hash_before": body_hash_before,
+        "raw_body_hash_after": body_hash_after,
+        "canonical_json_hash_before": canonical_hash_before,
+        "canonical_json_hash_after": canonical_hash_after,
+        "bytes_identical": body_after == body,
+        "original_attempt_unchanged": asset["attempt_history"] == original_attempt,
+        "quarantine_retained": quarantine_path.is_file(),
+    }
+
+
+def authorize_only_totals_request(store: CanaryStore, *, authorization_note: str) -> dict[str, Any]:
+    """Persist one new-attempt authorization for only the unattempted Totals asset."""
+    if not authorization_note.strip():
+        raise ValueError("A nonempty authorization note is required")
+    manifest = store.load()
+    if manifest.get("phase2a1_totals_authorization") is not None:
+        raise ValueError("Phase 2A.1 Totals authorization is already recorded")
+    per100 = manifest["raw_assets"][10]
+    totals = manifest["raw_assets"][11]
+    if per100["status"] != "verified" or per100["attempt_count"] != 1:
+        raise ValueError("Reviewed request 11 must be verified with one original attempt")
+    if totals["status"] != "planned" or totals["attempt_count"] != 0 or totals["attempt_history"]:
+        raise ValueError("Totals must be the sole still-unattempted asset")
+    if any(asset["status"] != "verified" for asset in manifest["raw_assets"][:11]):
+        raise ValueError("All preceding assets must be verified")
+    identity = {
+        "asset_id": totals["asset_id"],
+        "maximum_new_attempts": 1,
+        "request_identity": totals["identity"],
+    }
+    authorization = {
+        "authorization_id": stable_contract_id("phase2a1-totals-authorization", identity),
+        **identity,
+        "authorized_at": store.clock(),
+        "authorization_note": authorization_note.strip(),
+        "request_11_retry_authorized": False,
+    }
+    manifest["phase2a1_totals_authorization"] = authorization
+    store.save(manifest)
+    return {"network_calls": 0, **authorization}
 
 
 def reconcile_quarantine_evidence(store: CanaryStore) -> dict[str, Any]:
@@ -767,6 +1027,7 @@ def analyze_cache(store: CanaryStore) -> dict[str, Any]:
             replay = verify_asset_cache(asset, store.cache_root, manifest)
             rows = _player_rows(replay["payload"])
             entry["stable_id_audit"] = audit_stable_ids(rows)
+            entry["trade_aggregation"] = _trade_aggregation(rows)
         elif asset["status"] == "quarantined":
             attempt = asset["attempt_history"][0]
             body = (store.cache_root / attempt["preserved_response_path"]).read_bytes()
@@ -777,9 +1038,22 @@ def analyze_cache(store: CanaryStore) -> dict[str, Any]:
                           "response_body_bytes": len(body), "raw_body_hash": raw_body_hash(body),
                           "canonical_json_hash": canonical_json_hash(payload)})
         player_assets[mode] = entry
+    player_measure_reconciliation: dict[str, Any] = {"status": "not_comparable"}
     if all(manifest["raw_assets"][ordinal - 1]["status"] == "verified" for ordinal in (11, 12)):
         player_per100 = _player_rows(verify_asset_cache(manifest["raw_assets"][10], store.cache_root, manifest)["payload"])
         player_totals = _player_rows(verify_asset_cache(manifest["raw_assets"][11], store.cache_root, manifest)["payload"])
+        per100_ids = {str(row.get("PLAYER_ID")) for row in player_per100 if row.get("PLAYER_ID") not in (None, "")}
+        totals_ids = {str(row.get("PLAYER_ID")) for row in player_totals if row.get("PLAYER_ID") not in (None, "")}
+        player_measure_reconciliation = {
+            "status": "clean" if per100_ids == totals_ids else "mismatch",
+            "per100_rows": len(player_per100),
+            "totals_rows": len(player_totals),
+            "per100_unique_player_ids": len(per100_ids),
+            "totals_unique_player_ids": len(totals_ids),
+            "matched_player_ids": len(per100_ids & totals_ids),
+            "per100_only_player_ids": sorted(per100_ids - totals_ids, key=int),
+            "totals_only_player_ids": sorted(totals_ids - per100_ids, key=int),
+        }
         prior_index = player_rows_by_id(attach_prior_context(player_per100, PRIOR_FEATURE_SEASON))
         coverage = {}
         adv_lookup = {(r["team_id"], r.get("pair_key")): r for r in all_advanced}
@@ -802,11 +1076,12 @@ def analyze_cache(store: CanaryStore) -> dict[str, Any]:
         for row in player_per100:
             pid = str(row.get("PLAYER_ID")); per100_min = _numeric(row.get("MIN")); total_min = _numeric(totals_by_id.get(pid, {}).get("MIN"))
             if per100_min is not None and total_min is not None:
-                shared_minutes.append((pid, per100_min, total_min))
-        per100_minutes = [x[1] for x in shared_minutes]; total_minutes = [x[2] for x in shared_minutes]
+                shared_minutes.append({"player_id": pid, "player_name": row.get("PLAYER_NAME"),
+                                       "per100_min": per100_min, "totals_min": total_min})
+        per100_minutes = [x["per100_min"] for x in shared_minutes]; total_minutes = [x["totals_min"] for x in shared_minutes]
         min_audit = {"comparable_players": len(shared_minutes), "per100_min": _quantiles(per100_minutes),
                      "totals_min": _quantiles(total_minutes),
-                     "known_high_minute_records": sorted(shared_minutes, key=lambda x: x[2], reverse=True)[:10],
+                     "known_high_minute_records": sorted(shared_minutes, key=lambda x: x["totals_min"], reverse=True)[:10],
                      "units_distinct": bool(shared_minutes) and max(total_minutes) > 1000 and max(per100_minutes) < 100,
                      "classification": "season_total_minutes_supported" if shared_minutes and max(total_minutes) > 1000 and max(per100_minutes) < 100 else "unresolved"}
     assets = [{"ordinal": a["ordinal"], "asset_id": a["asset_id"], "identity": a["identity"], "status": a["status"],
@@ -823,17 +1098,26 @@ def analyze_cache(store: CanaryStore) -> dict[str, Any]:
                "prior_feature_season": PRIOR_FEATURE_SEASON, "assets": assets, "teams": teams_summary,
                "combined_identity": combined, "target_ineligible_count": sum(len(t["target_ineligible_rows"]) for t in teams_summary.values()),
                "player_assets": player_assets,
+               "player_measure_reconciliation": player_measure_reconciliation,
                "prior_coverage": coverage, "minutes_semantics": min_audit,
                "pair_schema_compatibility": "identical" if schema_ok else "non_identical",
                "prior_player_schema_compatibility": (
-                   "additive_quarantined" if manifest["raw_assets"][10]["status"] == "quarantined"
-                   else "identical" if manifest["raw_assets"][10]["status"] == "verified" else "not_observed"
+                   "reviewed_v2_identical_both_modes"
+                   if manifest.get("active_player_schema_version") == PLAYER_SCHEMA_V2
+                   and all(manifest["raw_assets"][index]["status"] == "verified" for index in (10, 11))
+                   else "additive_quarantined" if manifest["raw_assets"][10]["status"] == "quarantined"
+                   else "identical_v1" if manifest["raw_assets"][10]["status"] == "verified" else "not_observed"
                ),
                "base_advanced_reconciliation": "clean" if clean_pairs else "failed",
                "primary_classification": ("historical canary supported; complete 2023-24 raw acquisition ready"
                    if schema_ok and clean_pairs and min_audit["classification"] == "season_total_minutes_supported"
                    else "historical pair acquisition supported; prior-season join unresolved"
                    if schema_ok and clean_pairs else "historical canary failed; Phase 2B blocked")}
+    summary["phase2b_decision"] = (
+        "go: complete 2023-24 raw acquisition authorized"
+        if summary["primary_classification"] == "historical canary supported; complete 2023-24 raw acquisition ready"
+        else "no-go: resolve remaining canary anomaly before complete acquisition"
+    )
     deterministic = deepcopy(summary)
     for asset in deterministic["assets"]:
         asset.pop("latency_seconds", None)

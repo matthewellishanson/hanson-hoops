@@ -9,8 +9,10 @@ from pathlib import Path
 from pair_fit_v2.phase2a_historical_canary import (
     CanaryStore,
     analyze_cache,
+    authorize_only_totals_request,
     dry_run_plan,
     expected_manifest,
+    reviewed_promote_player_per100,
     run_acquisition,
 )
 
@@ -22,6 +24,9 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--dry-run", action="store_true")
     result.add_argument("--live-acquisition", action="store_true")
     result.add_argument("--analyze", action="store_true")
+    result.add_argument("--reviewed-promote-player", action="store_true")
+    result.add_argument("--authorize-totals", action="store_true")
+    result.add_argument("--live-totals", action="store_true")
     result.add_argument("--delay-seconds", type=float, default=1.0)
     return result
 
@@ -44,6 +49,25 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("Initialize before acquisition")
         output["acquisition"] = run_acquisition(
             store, dry_run=False, live_acquisition=True, delay_seconds=args.delay_seconds
+        )
+    if args.reviewed_promote_player:
+        output["reviewed_promotion"] = reviewed_promote_player_per100(
+            store,
+            review_note="User-authorized Phase 2A.1 approval of the exact 69-column fingerprint",
+        )
+    if args.authorize_totals:
+        output["totals_authorization"] = authorize_only_totals_request(
+            store,
+            authorization_note="User-authorized Phase 2A.1 request 12 only; no request-11 retry",
+        )
+    if args.live_totals:
+        totals_id = expected["raw_assets"][11]["asset_id"]
+        output["totals_acquisition"] = run_acquisition(
+            store,
+            dry_run=False,
+            live_acquisition=True,
+            delay_seconds=args.delay_seconds,
+            authorized_asset_id=totals_id,
         )
     if args.analyze:
         output["analysis"] = analyze_cache(store)

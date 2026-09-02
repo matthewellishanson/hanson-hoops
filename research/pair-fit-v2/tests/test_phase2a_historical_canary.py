@@ -22,6 +22,7 @@ from pair_fit_v2.phase2a_historical_canary import (
     TransportError,
     TransportResult,
     analyze_cache,
+    authorize_only_totals_request,
     build_manifest,
     diagnostic_asset_id,
     dry_run_plan,
@@ -29,6 +30,7 @@ from pair_fit_v2.phase2a_historical_canary import (
     player_identity,
     request_parameters,
     reconcile_quarantine_evidence,
+    reviewed_promote_player_per100,
     run_acquisition,
     validate_identity,
     validate_manifest,
@@ -237,3 +239,149 @@ def test_no_prohibited_artifact_formats_are_part_of_contract(tmp_path):
     text = json.dumps(store.load()).lower()
     for forbidden in (".parquet", ".feather", ".duckdb", ".sqlite", "2025-26"):
         assert forbidden not in text
+
+
+REVIEWED_PLAYER_BASE_HEADERS = (
+    PLAYER_HEADERS[:-1]
+    + [f"HISTORICAL_FIELD_{index}" for index in range(53)]
+    + ["TEAM_COUNT"]
+)
+REVIEWED_PLAYER_V2_HEADERS = (
+    REVIEWED_PLAYER_BASE_HEADERS[:-1]
+    + ["FP_HIGH_SCORE", "FP_HIGH_SCORE_RANK", "TEAM_COUNT"]
+)
+
+
+def reviewed_store(tmp_path):
+    pair, _ = contracts()
+    player = {
+        "LeagueDashPlayerStats": schema_fingerprint(
+            {"name": "LeagueDashPlayerStats", "headers": REVIEWED_PLAYER_BASE_HEADERS}
+        )
+    }
+    expected = build_manifest(pair, player)
+    store = CanaryStore(tmp_path, expected, clock=lambda: "2026-01-01T00:00:00Z")
+    store.create_or_load()
+    return store
+
+
+def reviewed_player_payload(identity):
+    params = request_parameters(identity)
+    total_mode = identity["parameters"]["per_mode"] == "Totals"
+    rows = []
+    for player_id in range(1, 540):
+        values = {
+            "PLAYER_ID": player_id,
+            "PLAYER_NAME": f"Player {player_id}",
+            "NICKNAME": f"P{player_id}",
+            "TEAM_ID": 10,
+            "TEAM_ABBREVIATION": "TST",
+            "AGE": 25,
+            "GP": 80,
+            "MIN": 3200.0 - player_id if total_mode else 35.0,
+            "PTS": 20,
+            "PLUS_MINUS": 1,
+            "FP_HIGH_SCORE": 50,
+            "FP_HIGH_SCORE_RANK": player_id,
+            "TEAM_COUNT": 1,
+        }
+        rows.append(_row(REVIEWED_PLAYER_V2_HEADERS, values))
+    return {
+        "parameters": params,
+        "resultSets": [{
+            "name": "LeagueDashPlayerStats",
+            "headers": REVIEWED_PLAYER_V2_HEADERS,
+            "rowSet": rows,
+        }],
+    }
+
+
+def test_reviewed_promotion_preserves_attempt_quarantine_bytes_and_hashes_then_runs_only_totals(tmp_path):
+    store = reviewed_store(tmp_path)
+
+    def phase2a_transport(identity, timeout):
+        payload = (
+            pair_payload(identity)
+            if identity["endpoint"] != PLAYER_ENDPOINT
+            else reviewed_player_payload(identity)
+        )
+        return TransportResult(200, json.dumps(payload, separators=(",", ":")).encode(), .25)
+
+    first = run_acquisition(
+        store,
+        dry_run=False,
+        live_acquisition=True,
+        transport=phase2a_transport,
+        sleep_fn=lambda _: None,
+    )
+    assert first["verified"] == 10 and first["quarantined"] == 1 and first["attempted"] == 11
+    before = store.load()
+    original_attempt = deepcopy(before["raw_assets"][10]["attempt_history"])
+    quarantine_path = tmp_path / original_attempt[0]["preserved_response_path"]
+    quarantine_bytes = quarantine_path.read_bytes()
+
+    promotion = reviewed_promote_player_per100(
+        store,
+        review_note="fixture approval of exact 69-column historical fingerprint",
+    )
+    promoted = store.load()
+    per100 = promoted["raw_assets"][10]
+    assert promotion["network_calls"] == 0
+    assert promotion["bytes_identical"] and promotion["quarantine_retained"]
+    assert promotion["raw_body_hash_before"] == promotion["raw_body_hash_after"]
+    assert promotion["canonical_json_hash_before"] == promotion["canonical_json_hash_after"]
+    assert per100["attempt_count"] == 1 and per100["attempt_history"] == original_attempt
+    assert quarantine_path.read_bytes() == quarantine_bytes
+    assert (tmp_path / per100["cache"]["relative_path"]).read_bytes() == quarantine_bytes
+    assert per100["transition_history"][-1]["category"] == "reviewed_schema_promotion"
+    assert len(promoted["player_schema_reviews"]) == 1
+
+    authorization = authorize_only_totals_request(
+        store,
+        authorization_note="fixture authorizes request 12 only",
+    )
+    assert authorization["network_calls"] == 0
+    assert authorization["asset_id"] == promoted["raw_assets"][11]["asset_id"]
+    assert authorization["request_11_retry_authorized"] is False
+
+    calls = []
+    def totals_only(identity, timeout):
+        calls.append(identity)
+        assert identity == player_identity("Totals")
+        return TransportResult(
+            200,
+            json.dumps(reviewed_player_payload(identity), separators=(",", ":")).encode(),
+            .25,
+        )
+
+    completed = run_acquisition(
+        store,
+        dry_run=False,
+        live_acquisition=True,
+        transport=totals_only,
+        sleep_fn=lambda _: None,
+        authorized_asset_id=authorization["asset_id"],
+    )
+    assert completed["completed"] is True and completed["verified"] == 12
+    assert len(calls) == 1
+    final_manifest = store.load()
+    assert final_manifest["raw_assets"][10]["attempt_history"] == original_attempt
+    assert final_manifest["raw_assets"][10]["attempt_count"] == 1
+    assert final_manifest["raw_assets"][11]["attempt_count"] == 1
+    summary = analyze_cache(store)
+    assert summary["minutes_semantics"]["classification"] == "season_total_minutes_supported"
+    assert summary["prior_coverage"]["combined"]["pairs"]["both_players_matched"] == 5
+    assert summary["primary_classification"] == "historical canary supported; complete 2023-24 raw acquisition ready"
+
+
+def test_totals_runner_requires_exact_asset_specific_authorization(tmp_path):
+    store = make_store(tmp_path)
+    totals_id = store.load()["raw_assets"][11]["asset_id"]
+    with pytest.raises(ValueError, match="authorization"):
+        run_acquisition(
+            store,
+            dry_run=False,
+            live_acquisition=True,
+            transport=lambda *_: pytest.fail("must not request"),
+            authorized_asset_id=totals_id,
+        )

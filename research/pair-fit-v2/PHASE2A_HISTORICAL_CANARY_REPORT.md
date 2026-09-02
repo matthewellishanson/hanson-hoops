@@ -1,5 +1,7 @@
 # Phase 2A: 2023-24 historical raw-acquisition canary
 
+> **Subsequent Phase 2A.1 result:** the exact quarantined 69-column fingerprint was reviewed and versioned, the identical request-11 bytes were promoted without a second request, and the separately authorized Totals request verified with the same schema. Totals `MIN` and prior joins then passed. The current decision is `historical canary supported; complete 2023-24 raw acquisition ready`. This report otherwise preserves what Phase 2A knew at its original stop; see `PHASE2A1_PLAYER_SCHEMA_PROMOTION_REPORT.md`.
+
 ## Bounded conclusion
 
 Primary classification: **`historical pair acquisition supported; prior-season join unresolved`**.

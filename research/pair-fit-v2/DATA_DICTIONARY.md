@@ -50,6 +50,8 @@ The exact final feature matrix is not yet selected. Phase 0F confirmed the obser
 
 Phase 2A observed that the 2022-23 response adds `FP_HIGH_SCORE` and `FP_HIGH_SCORE_RANK` relative to that approved 2023-24 schema. Those fields are quarantined schema evidence only: their semantics are not approved, they are not selected features, and they were not joined. The 2022-23 Totals response was skipped, so Totals `MIN` remains unvalidated as season-total minutes.
 
+The preceding sentence preserves the Phase 2A checkpoint. Phase 2A.1 approved the exact 69-column fingerprint as schema version `phase2a.player-base.v2` and promoted the unchanged payload after review. The two added fields remain unselected and semantically unresolved; schema approval is not feature approval. The separately acquired 2022-23 Totals asset has the same fingerprint and matching 539-player ID set. Its `MIN` distribution (maximum 2,963.1767, median 970.18) and known high-minute records support its interpretation as season-total minutes. Totals `MIN` is approved only as a potential prior-player eligibility/reliability field; no threshold or predictive feature use is selected.
+
 - `PLAYER_ID`, `PLAYER_NAME`: stable identity fields. Joins must use `PLAYER_ID` only, never `PLAYER_NAME`.
 - `TEAM_ID`, `TEAM_ABBREVIATION`, `TEAM_COUNT`: team context; `TEAM_COUNT > 1` indicates a player traded during the season, with the endpoint returning one aggregate row rather than one row per team stint.
 - `AGE`, `GP`: identity/sample-size context. `GP` can exceed 82 for a traded player because the two teams involved may have played a different number of games by the trade date; this is a valid combined-team total, not an error, and must not be capped or rejected.
