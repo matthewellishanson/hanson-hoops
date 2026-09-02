@@ -4,13 +4,19 @@
 
 This folder contains the Phase 0 feasibility scaffold, Phase 1A evidence audit and Phase 1B architecture contracts for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
 
+## Phase 2B status
+
+Phase 2B stopped at its first required review gate. The immutable prerequisites, ten imported Phase 2A pair assets, and two player dependencies verified, and the 60-entry dry run correctly identified 50 new identities. The Atlanta Base transport invocation then failed locally before HTTP because the adapter built its team allowlist incorrectly. That invocation consumed one attempt, was not retried, and no later asset was attempted. Classification: `2023-24 raw acquisition incomplete; historical expansion blocked`.
+
+The adapter defect is regression-tested and corrected in the uncommitted working tree, but the original failed event remains immutable. A retry/continuation requires separate explicit authorization. Phase 2C and another season have not started. See `PHASE2B_RAW_SEASON_REPORT.md`.
+
 ## Phase 2A status
 
 The bounded 2023-24 canary supports the historical pair-acquisition path but leaves the 2022-23 prior-player join unresolved. All ten five-team `TeamDashLineups` Base/Advanced assets verified with schemas identical to 2024-25; their 880 pair keys reconcile one-to-one and all direct standard rating identities are rounding-consistent. No 250-row boundary or nonpositive possession appeared.
 
 The 2022-23 Base/Per100 player response added `FP_HIGH_SCORE` and `FP_HIGH_SCORE_RANK`, so it was quarantined and the subsequent Totals request was skipped. Classification: `historical pair acquisition supported; prior-season join unresolved`. Complete 2023-24 acquisition is not yet authorized; a separate cache-first player-schema decision and Totals/minutes audit is required. See `PHASE2A_HISTORICAL_CANARY_REPORT.md`.
 
-That was the Phase 2A checkpoint. Phase 2A.1 subsequently approved the exact 69-column schema as `phase2a.player-base.v2`, promoted the identical preserved bytes with no request-11 retry, and acquired only the separately authorized Totals asset. Both player modes contain 539 matching unique IDs; Totals `MIN` behaves as season-total minutes; the 880 pair joins are complete for audit. Current classification: `historical canary supported; complete 2023-24 raw acquisition ready`. Phase 2B is a bounded go for complete 2023-24 raw acquisition only; it has not started. See `PHASE2A1_PLAYER_SCHEMA_PROMOTION_REPORT.md`.
+That was the Phase 2A checkpoint. Phase 2A.1 subsequently approved the exact 69-column schema as `phase2a.player-base.v2`, promoted the identical preserved bytes with no request-11 retry, and acquired only the separately authorized Totals asset. Both player modes contain 539 matching unique IDs; Totals `MIN` behaves as season-total minutes; the 880 pair joins are complete for audit. At the Phase 2A.1 checkpoint the classification was `historical canary supported; complete 2023-24 raw acquisition ready`, and Phase 2B had not started. The newer Phase 2B review-gate status above supersedes that operational readiness statement without changing the canary evidence. See `PHASE2A1_PLAYER_SCHEMA_PROMOTION_REPORT.md`.
 
 ## Phase 1F status
 
@@ -71,6 +77,7 @@ Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique 
 - Phase 1F target-semantics report: `PHASE1F_TARGET_SEMANTICS_REPORT.md`
 - Phase 2A historical-canary report: `PHASE2A_HISTORICAL_CANARY_REPORT.md`
 - Phase 2A.1 reviewed-promotion report: `PHASE2A1_PLAYER_SCHEMA_PROMOTION_REPORT.md`
+- Phase 2B raw-season report: `PHASE2B_RAW_SEASON_REPORT.md`
 - Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`, `tests/test_phase1b_architecture.py`, `tests/test_phase1d_exhaustiveness.py`, and `tests/test_phase1e_recovery.py`
 
 ## Commands
