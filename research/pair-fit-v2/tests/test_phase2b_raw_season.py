@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import socket
 import sys
 from copy import deepcopy
@@ -11,6 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pair_fit_v2.phase2b_raw_season as phase2b
+import pair_fit_v2.phase2b_cli as phase2b_cli
 from pair_fit_v2.phase2b_raw_season import (
     MAX_NEW_ATTEMPTS,
     ReleaseStore,
@@ -80,7 +82,7 @@ def _payload(identity, expected, *, pair_id="-101-202-", poss=10, net=10.0):
     }
 
 
-def _bypass_import_replay(monkeypatch):
+def _bypass_import_replay(monkeypatch, store=None):
     monkeypatch.setattr(
         phase2b,
         "verify_all_imports_and_dependencies",
@@ -103,6 +105,8 @@ def _bypass_import_replay(monkeypatch):
         return original(asset, release_store, manifest)
 
     monkeypatch.setattr(phase2b, "verify_release_asset", verify)
+    if store is not None and not (store.cache_root / "phase2b/live_allowlist.json").exists():
+        phase2b.persist_initial_plan(store)
 
 
 def test_deterministic_30_team_60_entry_order_and_exact_reuse_counts(expected):
@@ -177,7 +181,7 @@ def test_manifest_rejects_imported_provenance_mutation(expected):
 
 def test_dry_run_has_zero_network_and_correct_actions(store, monkeypatch):
     monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: pytest.fail("network prohibited"))
-    _bypass_import_replay(monkeypatch)
+    _bypass_import_replay(monkeypatch, store)
     plan = phase2b.dry_run_plan(store)
     assert plan["network_calls"] == 0 and plan["pair_entries"] == 60
     assert plan["initial_imported_reuses"] == 10
@@ -186,7 +190,7 @@ def test_dry_run_has_zero_network_and_correct_actions(store, monkeypatch):
 
 
 def test_dry_run_persists_exact_50_identity_allowlist(store, monkeypatch):
-    _bypass_import_replay(monkeypatch)
+    _bypass_import_replay(monkeypatch, store)
     result = phase2b.persist_dry_run(store)
     allowlist = json.loads((store.cache_root / result["live_allowlist_path"]).read_text())
     assert result["live_allowlist_count"] == 50
@@ -237,7 +241,7 @@ def test_zero_possession_is_preserved_not_a_team_stop(expected):
 
 
 def test_first_failure_stops_without_retry_or_progression(store, monkeypatch):
-    _bypass_import_replay(monkeypatch)
+    _bypass_import_replay(monkeypatch, store)
     calls = []
 
     def failed(identity, _timeout):
@@ -257,7 +261,7 @@ def test_first_failure_stops_without_retry_or_progression(store, monkeypatch):
 
 
 def test_successful_team_is_cached_replayed_then_next_team_can_continue(store, monkeypatch):
-    _bypass_import_replay(monkeypatch)
+    _bypass_import_replay(monkeypatch, store)
     calls = []
 
     def transport(identity, _timeout):
@@ -272,7 +276,7 @@ def test_successful_team_is_cached_replayed_then_next_team_can_continue(store, m
 
 
 def test_schema_quarantine_stops_and_preserves_body(store, monkeypatch):
-    _bypass_import_replay(monkeypatch)
+    _bypass_import_replay(monkeypatch, store)
 
     def transport(identity, _timeout):
         payload = _payload(identity, store.expected)
@@ -334,7 +338,286 @@ def test_direct_transport_builds_team_id_allowlist_without_tuple_mismatch(monkey
 
     monkeypatch.setattr(phase2b.requests, "Session", Session)
     identity = expected["pair_assets"][0]["identity"]
-    result = phase2b.direct_transport(identity)
+    approved = {
+        phase2b.release_asset_id(identity): {
+            "release_asset_id": phase2b.release_asset_id(identity),
+            "identity": identity,
+        }
+    }
+    result = phase2b.direct_transport(
+        identity, cache_root=REAL_CACHE, approved_identities=approved
+    )
     assert result.status_code == 200
     assert observed["params"]["TeamID"] == "1610612737"
     assert observed["timeout"] == 30 and observed["trust_env"] is False and observed["closed"] is True
+
+
+def test_default_acquisition_transport_uses_nondefault_store_cache_root(tmp_path, monkeypatch):
+    selected_cache = (tmp_path / "selected_nondefault_cache").resolve()
+    shutil.copytree(REAL_CACHE.resolve(), selected_cache)
+    shutil.rmtree(selected_cache / "phase2b")
+    unrelated_cwd = tmp_path / "unrelated_working_directory"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+    assert not (unrelated_cwd / "research/pair-fit-v2/cache").exists()
+
+    selected_store = phase2b.create_store(
+        selected_cache,
+        clock=lambda: "2026-09-01T00:00:00Z",
+    )
+    selected_store.create_or_load()
+    phase2b.persist_initial_plan(selected_store)
+    observed = {"session_constructions": 0, "gets": 0}
+
+    class Response:
+        status_code = 503
+        content = b"offline fixture response"
+
+    class Session:
+        trust_env = True
+
+        def __init__(self):
+            observed["session_constructions"] += 1
+            self.headers = self
+
+        def update(self, _values):
+            pass
+
+        def get(self, _url, *, params, timeout):
+            observed["gets"] += 1
+            observed["team_id"] = params["TeamID"]
+            observed["timeout"] = timeout
+            observed["trust_env"] = self.trust_env
+            return Response()
+
+        def close(self):
+            observed["closed"] = True
+
+    monkeypatch.setattr(phase2b.requests, "Session", Session)
+    result = run_acquisition(
+        selected_store,
+        live_acquisition=True,
+        transport=None,
+        sleep_fn=lambda _seconds: pytest.fail("first failed response must stop the queue"),
+    )
+    assert result["stop_category"] == "non_200_http"
+    assert result["new_attempts"] == 1
+    assert observed == {
+        "session_constructions": 1,
+        "gets": 1,
+        "team_id": "1610612737",
+        "timeout": 30,
+        "trust_env": False,
+        "closed": True,
+    }
+    assert (selected_cache / "phase2b/release_manifest.json").exists()
+
+
+def test_direct_transport_rejects_unauthorized_identity_before_session(monkeypatch, expected):
+    identity = deepcopy(expected["pair_assets"][0]["identity"])
+    identity["parameters"]["measure_type"] = "Four Factors"
+    monkeypatch.setattr(
+        phase2b.requests,
+        "Session",
+        lambda: pytest.fail("unauthorized identity must fail before session construction"),
+    )
+    with pytest.raises(ValueError, match="Unauthorized Phase 2B pair request identity"):
+        phase2b.direct_transport(
+            identity,
+            cache_root=REAL_CACHE,
+            approved_identities={},
+        )
+
+
+def test_persisted_analysis_failure_stops_after_restart_before_transport(store, monkeypatch):
+    _bypass_import_replay(monkeypatch, store)
+    manifest = store.load()
+    affected = [
+        asset
+        for asset in manifest["pair_assets"]
+        if asset["identity"]["parameters"]["team_id"] == "1610612739"
+    ]
+    following = [
+        asset
+        for asset in manifest["pair_assets"]
+        if asset["identity"]["parameters"]["team_id"] == "1610612740"
+    ]
+    assert [asset["identity"]["parameters"]["measure_type"] for asset in affected] == [
+        "Base",
+        "Advanced",
+    ]
+    for asset in affected:
+        asset["status"] = "verified"
+    assert all(asset["status"] == "planned" for asset in following)
+    manifest["release_analysis_failure"] = {
+        "team_id": "1610612739",
+        "category": "fixture_analysis_stop",
+    }
+    store.save(manifest)
+    restarted = ReleaseStore(
+        store.cache_root,
+        store.expected,
+        clock=lambda: "2026-09-01T00:01:00Z",
+    )
+    reloaded = restarted.load()
+    assert all(asset["status"] == "verified" for asset in reloaded["pair_assets"][4:6])
+    assert all(asset["status"] == "planned" for asset in reloaded["pair_assets"][6:8])
+    monkeypatch.setattr(
+        phase2b,
+        "verify_all_imports_and_dependencies",
+        lambda _store: pytest.fail("persisted stop must occur before prerequisite replay"),
+    )
+    monkeypatch.setattr(
+        phase2b.requests,
+        "Session",
+        lambda: pytest.fail("persisted stop must occur before HTTP setup"),
+    )
+    result = run_acquisition(
+        restarted,
+        live_acquisition=True,
+        transport=None,
+    )
+    assert result["stop_category"] == "persisted_release_analysis_failure"
+    assert result["persisted_analysis_failure"]["category"] == "fixture_analysis_stop"
+    after = restarted.load()
+    assert all(asset["attempt_count"] == 0 for asset in after["pair_assets"][6:8])
+    assert all(asset["status"] == "planned" for asset in after["pair_assets"][6:8])
+
+
+def test_persisted_allowlist_tamper_stops_before_transport(store, monkeypatch):
+    _bypass_import_replay(monkeypatch, store)
+    path = store.cache_root / "phase2b/live_allowlist.json"
+    payload = json.loads(path.read_text())
+    payload["authorized_assets"][0]["identity"]["parameters"]["team_id"] = "1610612738"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="allowlist identities"):
+        run_acquisition(
+            store,
+            live_acquisition=True,
+            transport=lambda *_: pytest.fail("invalid allowlist must prevent transport"),
+        )
+
+
+def test_initial_plan_is_create_once_and_preview_is_read_only(store, monkeypatch, capsys):
+    _bypass_import_replay(monkeypatch, store)
+    plan_path = store.cache_root / "phase2b/dry_run.json"
+    allowlist_path = store.cache_root / "phase2b/live_allowlist.json"
+    before = (plan_path.read_bytes(), allowlist_path.read_bytes())
+    monkeypatch.setattr(phase2b_cli, "create_store", lambda _root: store)
+    assert phase2b_cli.main(["--cache-root", str(store.cache_root), "--dry-run"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["dry_run"]["command_semantics"] == "read_only_preview"
+    assert output["dry_run"]["side_effects"] == []
+    assert before == (plan_path.read_bytes(), allowlist_path.read_bytes())
+    with pytest.raises(SystemExit, match="cannot be combined"):
+        phase2b_cli.main(["--cache-root", str(store.cache_root), "--dry-run", "--initialize"])
+    persisted = phase2b.persist_initial_plan(store)
+    assert persisted["evidence_action"] == "validated_existing"
+    assert persisted["side_effects"] == []
+    assert before == (plan_path.read_bytes(), allowlist_path.read_bytes())
+
+
+@pytest.mark.parametrize("pair_id", ["-abc-202-", "-0101-202-", "-0-202-", "-101-101-"])
+def test_strict_pair_ids_reject_previously_parseable_or_invalid_values(expected, pair_id):
+    identity = expected["pair_assets"][0]["identity"]
+    with pytest.raises(ValueError, match="stable player IDs"):
+        validate_response(_payload(identity, expected, pair_id=pair_id), identity, expected)
+
+
+def test_prior_player_boundary_rejects_duplicate_invalid_and_same_season(expected):
+    identity = expected["player_dependencies"][0]["source_identity"]
+    assert phase2b.strict_player_source_audit(
+        [{"PLAYER_ID": 101}, {"PLAYER_ID": "202"}], identity
+    )["player_ids"] == ["101", "202"]
+    with pytest.raises(ValueError, match="invalid or duplicate"):
+        phase2b.strict_player_source_audit(
+            [{"PLAYER_ID": "101"}, {"PLAYER_ID": 101}], identity
+        )
+    with pytest.raises(ValueError, match="invalid or duplicate"):
+        phase2b.strict_player_source_audit([{"PLAYER_ID": "01"}], identity)
+    same_season = deepcopy(identity)
+    same_season["prior_feature_season"] = "2023-24"
+    same_season["parameters"]["season"] = "2023-24"
+    with pytest.raises(ValueError, match="only target 2023-24 and prior 2022-23"):
+        phase2b.strict_player_source_audit([{"PLAYER_ID": 101}], same_season)
+
+
+def test_synthetic_completed_season_analysis_is_deterministic_and_offline(store, monkeypatch):
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: pytest.fail("network prohibited"))
+    monkeypatch.setattr(phase2b.requests, "Session", lambda: pytest.fail("network prohibited"))
+    manifest = store.load()
+    for asset in manifest["pair_assets"]:
+        if asset["mode"] == "new_acquisition":
+            asset["status"] = "verified"
+    store.save(manifest)
+    monkeypatch.setattr(
+        phase2b,
+        "verify_all_imports_and_dependencies",
+        lambda _store: {
+            "network_calls": 0,
+            "imported_pair_assets_verified": 10,
+            "player_dependencies_verified": 2,
+        },
+    )
+
+    def verify_pair(asset, release_store, current_manifest):
+        payload = _payload(asset["identity"], release_store.expected)
+        validation = validate_response(payload, asset["identity"], current_manifest)
+        return {
+            "payload": payload,
+            **validation,
+            "raw_body_hash": "fixture-raw",
+            "canonical_json_hash": "fixture-canonical",
+            "cache_file_bytes": 1,
+            "provenance": "isolated_fixture",
+        }
+
+    monkeypatch.setattr(phase2b, "verify_release_asset", verify_pair)
+    source_manifest = {
+        "raw_assets": [{} for _ in range(10)]
+        + [
+            {"identity": dependency["source_identity"]}
+            for dependency in store.expected["player_dependencies"]
+        ]
+    }
+    source_pairs = {
+        "total_pair_rows": 5,
+        "both_players_matched": 5,
+        "only_player_1_matched": 0,
+        "only_player_2_matched": 0,
+        "neither_player_matched": 0,
+    }
+    source_analysis = {
+        "deterministic_analysis_sha256": "fixture-phase2a",
+        "teams": {
+            team_id: {"reconciliation": {"matched_pairs": 1}}
+            for team_id in phase2b.CANARY_TEAM_IDS
+        },
+        "prior_coverage": {"combined": {"pairs": source_pairs}},
+    }
+    monkeypatch.setattr(
+        phase2b,
+        "_phase2a_context",
+        lambda _root: (object(), source_manifest, source_analysis),
+    )
+    player_payload = {
+        "resultSets": [
+            {
+                "name": "LeagueDashPlayerStats",
+                "headers": ["PLAYER_ID", "PLAYER_NAME"],
+                "rowSet": [[101, "A. One"], [202, "B. Two"]],
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        phase2b,
+        "verify_phase2a_asset_cache",
+        lambda *_a, **_k: {"payload": deepcopy(player_payload)},
+    )
+    first = phase2b.analyze_release(store)
+    second = phase2b.analyze_release(store)
+    assert first["request_set"]["pair_entries"] == 60
+    assert first["combined"]["matched_observation_keys"] == 30
+    assert first["canary_reproduction"]["exact"] is True
+    assert first["primary_classification"].startswith("2023-24 raw release supported")
+    assert first["deterministic_analysis_sha256"] == second["deterministic_analysis_sha256"]

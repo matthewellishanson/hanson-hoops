@@ -10,7 +10,7 @@ from pair_fit_v2.phase2b_raw_season import (
     analyze_release,
     create_store,
     dry_run_plan,
-    persist_dry_run,
+    persist_initial_plan,
     run_acquisition,
     verify_all_imports_and_dependencies,
 )
@@ -22,6 +22,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--initialize", action="store_true")
     result.add_argument("--verify-imports", action="store_true")
     result.add_argument("--dry-run", action="store_true")
+    result.add_argument("--persist-initial-plan", action="store_true")
     result.add_argument("--live-acquisition", action="store_true")
     result.add_argument("--analyze", action="store_true")
     result.add_argument("--delay-seconds", type=float, default=1.0)
@@ -30,8 +31,10 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    if args.dry_run and args.live_acquisition:
-        raise SystemExit("Choose dry-run or live acquisition, not both")
+    if sum((args.dry_run, args.persist_initial_plan, args.live_acquisition)) > 1:
+        raise SystemExit("Choose preview, initial-plan persistence, or live acquisition")
+    if args.dry_run and args.initialize:
+        raise SystemExit("Read-only preview cannot be combined with initialization")
     store = create_store(args.cache_root)
     output: dict[str, object] = {
         "manifest_path": str(store.path),
@@ -42,7 +45,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.verify_imports:
         output["import_replay"] = verify_all_imports_and_dependencies(store)
     if args.dry_run:
-        output["dry_run"] = persist_dry_run(store)
+        output["dry_run"] = {
+            **dry_run_plan(store),
+            "command_semantics": "read_only_preview",
+            "side_effects": [],
+        }
+    if args.persist_initial_plan:
+        output["initial_plan"] = persist_initial_plan(store)
     if args.live_acquisition:
         output["acquisition"] = run_acquisition(
             store,

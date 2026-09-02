@@ -53,6 +53,7 @@ from pair_fit_v2.phase2a_historical_canary import (
     verify_asset_cache as verify_phase2a_asset_cache,
 )
 from pair_fit_v2.player_audit import (
+    audit_stable_ids,
     attach_prior_context,
     join_pairs_to_prior_players,
     player_rows_by_id,
@@ -115,12 +116,25 @@ def validate_season_scope(target_season: str, prior_feature_season: str) -> None
         raise ValueError("Prior-player season must precede the target season")
 
 
+def strict_player_id(value: Any, *, field: str = "PLAYER_ID") -> str:
+    """Return one positive, canonical decimal stable ID or reject it."""
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise ValueError(f"{field} must be a positive canonical decimal ID")
+    text = str(value)
+    if not text.isdecimal() or int(text) <= 0 or str(int(text)) != text:
+        raise ValueError(f"{field} must be a positive canonical decimal ID")
+    return text
+
+
 def load_team_inventory(cache_root: Path) -> tuple[tuple[str, str], ...]:
     """Load the frozen franchise-ID inventory from the verified Phase 1C manifest."""
     manifest = read_json(phase1c_manifest_path(cache_root))
     directory = manifest.get("team_directory")
     if not isinstance(directory, Mapping) or len(directory) != 30:
         raise ValueError("Phase 1C team inventory must contain 30 teams")
+    normalized_team_ids = {strict_player_id(team_id, field="team_id") for team_id in directory}
+    if normalized_team_ids != set(directory):
+        raise ValueError("Phase 1C team inventory contains a noncanonical team ID")
     asset_teams = {
         str(asset.get("identity", {}).get("parameters", {}).get("team_id"))
         for asset in manifest.get("raw_assets", [])
@@ -157,13 +171,14 @@ def validate_pair_identity(identity: Mapping[str, Any], authorized_team_ids: set
     params = identity.get("parameters")
     if identity.get("endpoint") != ENDPOINT or not isinstance(params, Mapping):
         raise ValueError("Only TeamDashLineups pair identities are authorized")
+    team_id = strict_player_id(params.get("team_id"), field="team_id")
     if (
         params.get("season") != TARGET_SEASON
         or params.get("season_type") != "regular-season"
         or params.get("league_id") != LEAGUE_ID
         or params.get("group_quantity") != GROUP_QUANTITY
         or params.get("measure_type") not in MEASURES
-        or str(params.get("team_id")) not in authorized_team_ids
+        or team_id not in authorized_team_ids
     ):
         raise ValueError("Unauthorized Phase 2B pair request identity")
     if params.get("DateFrom") not in (None, "") or params.get("DateTo") not in (None, ""):
@@ -480,13 +495,56 @@ def validate_response(payload: Mapping[str, Any], identity: Mapping[str, Any], m
         else:
             drift[name] = schema_drift_report(expected[name], actual[name])
     rejected = {name: value["classification"] for name, value in drift.items() if not value["accepted"]}
+    identifier_audit = None
+    if not rejected:
+        rows = attach_pair_context(
+            result_set_rows(extract_result_set(dict(payload), "Lineups")),
+            TARGET_SEASON,
+            identity["parameters"]["team_id"],
+        )
+        identifier_audit = strict_pair_identifier_audit(rows)
+        if identifier_audit["invalid_rows"] or identifier_audit["duplicate_canonical_pairs"]:
+            raise ValueError("Pair response contains invalid or duplicate stable player IDs")
     return {
         **validation,
         "drift_results": drift,
         "drift_classification": "identical" if not rejected else "non_identical",
         "accepted": not rejected,
         "rejected": rejected,
+        "strict_identifier_audit": identifier_audit,
     }
+
+
+def validate_player_dependency_identity(identity: Mapping[str, Any]) -> None:
+    """Enforce the exact prior-season boundary for reused player sources."""
+    validate_season_scope(str(identity.get("target_season")), str(identity.get("prior_feature_season")))
+    params = identity.get("parameters")
+    if (
+        identity.get("endpoint") != "LeagueDashPlayerStats"
+        or not isinstance(params, Mapping)
+        or params.get("season") != PRIOR_FEATURE_SEASON
+        or params.get("season_type") != "regular-season"
+        or params.get("league_id") != LEAGUE_ID
+        or params.get("measure_type") != "Base"
+        or params.get("per_mode") not in {"Per100Possessions", "Totals"}
+    ):
+        raise ValueError("Player dependency is not the approved 2022-23 prior-season source")
+
+
+def strict_player_source_audit(rows: list[dict[str, Any]], identity: Mapping[str, Any]) -> dict[str, Any]:
+    validate_player_dependency_identity(identity)
+    stable = audit_stable_ids(rows)
+    normalized: list[str] = []
+    failures = []
+    for index, row in enumerate(rows):
+        try:
+            normalized.append(strict_player_id(row.get("PLAYER_ID")))
+        except ValueError as exc:
+            failures.append({"row_index": index, "value": row.get("PLAYER_ID"), "detail": str(exc)})
+    duplicates = sorted(player_id for player_id, count in Counter(normalized).items() if count > 1)
+    if failures or duplicates or stable["duplicate_player_id_count"] or stable["missing_or_malformed_player_ids"]:
+        raise ValueError("Player dependency contains invalid or duplicate stable PLAYER_ID values")
+    return {**stable, "strict_positive_decimal_ids": True, "player_ids": sorted(normalized, key=int)}
 
 
 def verify_release_asset(asset: Mapping[str, Any], store: ReleaseStore, manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -550,7 +608,9 @@ def verify_all_imports_and_dependencies(store: ReleaseStore) -> dict[str, Any]:
     imported_results = [verify_release_asset(asset, store, manifest) for asset in imported]
     source_store, source_manifest, source_analysis = _phase2a_context(store.cache_root)
     dependencies = []
+    dependency_id_sets: dict[str, set[str]] = {}
     for dependency in manifest["player_dependencies"]:
+        validate_player_dependency_identity(dependency["source_identity"])
         matches = [
             asset
             for asset in source_manifest["raw_assets"][10:]
@@ -564,7 +624,15 @@ def verify_all_imports_and_dependencies(store: ReleaseStore) -> dict[str, Any]:
             or replay["canonical_json_hash"] != dependency["canonical_json_hash"]
         ):
             raise ValueError("Player dependency hash mismatch")
-        dependencies.append(replay)
+        rows = _player_rows(replay["payload"])
+        player_audit = strict_player_source_audit(rows, dependency["source_identity"])
+        mode = dependency["source_identity"]["parameters"]["per_mode"]
+        dependency_id_sets[mode] = set(player_audit["player_ids"])
+        dependencies.append({**replay, "strict_player_id_audit": player_audit})
+    if set(dependency_id_sets) != {"Per100Possessions", "Totals"}:
+        raise ValueError("Exactly one Per100Possessions and one Totals dependency are required")
+    if dependency_id_sets["Per100Possessions"] != dependency_id_sets["Totals"]:
+        raise ValueError("Prior-player dependency PLAYER_ID sets differ")
     return {
         "network_calls": 0,
         "imported_pair_assets_verified": len(imported_results),
@@ -572,6 +640,8 @@ def verify_all_imports_and_dependencies(store: ReleaseStore) -> dict[str, Any]:
         "phase2a_manifest_hash": _sha256_file(source_store.path),
         "phase2a_ledger_hash": _sha256_file(source_store.ledger_path),
         "phase2a_analysis_hash": source_analysis["deterministic_analysis_sha256"],
+        "prior_player_unique_ids": len(dependency_id_sets["Totals"]),
+        "prior_player_exact_id_set_match": True,
     }
 
 
@@ -623,10 +693,8 @@ def dry_run_plan(store: ReleaseStore) -> dict[str, Any]:
     }
 
 
-def persist_dry_run(store: ReleaseStore) -> dict[str, Any]:
-    """Persist the deterministic plan and exact new-live identity allowlist."""
-    plan = dry_run_plan(store)
-    allowlist = {
+def _plan_allowlist(plan: Mapping[str, Any]) -> dict[str, Any]:
+    return {
         "allowlist_version": "phase2b.live-allowlist.v1",
         "manifest_id": plan["manifest_id"],
         "maximum_new_live_attempts": MAX_NEW_ATTEMPTS,
@@ -640,12 +708,33 @@ def persist_dry_run(store: ReleaseStore) -> dict[str, Any]:
             if action["action"] == "acquire"
         ],
     }
-    if len(allowlist["authorized_assets"]) > MAX_NEW_ATTEMPTS:
-        raise ValueError("Dry-run allowlist exceeds the Phase 2B budget")
+
+
+def persist_initial_plan(store: ReleaseStore) -> dict[str, Any]:
+    """Write the initial plan once; existing evidence is validated, never overwritten."""
     plan_path = store.cache_root / "phase2b/dry_run.json"
     allowlist_path = store.cache_root / "phase2b/live_allowlist.json"
-    atomic_write_json(plan_path, plan)
-    atomic_write_json(allowlist_path, allowlist)
+    existing = plan_path.exists() or allowlist_path.exists()
+    if existing:
+        if not (plan_path.exists() and allowlist_path.exists()):
+            raise ValueError("Initial Phase 2B plan evidence is incomplete")
+        validate_persisted_plan_evidence(store)
+        plan = read_json(plan_path)
+        allowlist = read_json(allowlist_path)
+    else:
+        plan = dry_run_plan(store)
+        allowlist = _plan_allowlist(plan)
+        if (
+            len(allowlist["authorized_assets"]) != MAX_NEW_ATTEMPTS
+            or plan["planned_or_remaining_acquisitions"] != MAX_NEW_ATTEMPTS
+            or plan["continuation_reuses"] != 0
+            or any(action["action"] == "stop" for action in plan["actions"])
+        ):
+            raise ValueError("Initial Phase 2B plan evidence can only be created from the pristine plan")
+        plan_bytes = (json.dumps(plan, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        allowlist_bytes = (json.dumps(allowlist, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        atomic_write_bytes_new(plan_path, plan_bytes)
+        atomic_write_bytes_new(allowlist_path, allowlist_bytes)
     return {
         **plan,
         "dry_run_path": str(plan_path.relative_to(store.cache_root)).replace("\\", "/"),
@@ -653,7 +742,76 @@ def persist_dry_run(store: ReleaseStore) -> dict[str, Any]:
         "live_allowlist_count": len(allowlist["authorized_assets"]),
         "dry_run_sha256": _sha256_file(plan_path),
         "live_allowlist_sha256": _sha256_file(allowlist_path),
+        "evidence_action": "validated_existing" if existing else "created_once",
+        "side_effects": [] if existing else [
+            str(plan_path.relative_to(store.cache_root)).replace("\\", "/"),
+            str(allowlist_path.relative_to(store.cache_root)).replace("\\", "/"),
+        ],
     }
+
+
+def persist_dry_run(store: ReleaseStore) -> dict[str, Any]:
+    """Backward-compatible name for the explicit create-once persistence operation."""
+    return persist_initial_plan(store)
+
+
+def validate_persisted_plan_evidence(store: ReleaseStore) -> dict[str, dict[str, Any]]:
+    """Bind acquisition to the original immutable plan and exact identity allowlist."""
+    manifest = store.load()
+    plan_path = store.cache_root / "phase2b/dry_run.json"
+    allowlist_path = store.cache_root / "phase2b/live_allowlist.json"
+    if not plan_path.exists() or not allowlist_path.exists():
+        raise ValueError("Phase 2B initial plan and live allowlist must both exist")
+    plan = read_json(plan_path)
+    allowlist = read_json(allowlist_path)
+    expected_new = [asset for asset in store.expected["pair_assets"] if asset["mode"] == "new_acquisition"]
+    expected_by_id = {
+        asset["release_asset_id"]: {
+            "ordinal": asset["ordinal"],
+            "release_asset_id": asset["release_asset_id"],
+            "identity": asset["identity"],
+        }
+        for asset in expected_new
+    }
+    actual_entries = allowlist.get("authorized_assets")
+    if (
+        plan.get("manifest_id") != manifest["manifest_id"]
+        or plan.get("network_calls") != 0
+        or plan.get("pair_entries") != 60
+        or not isinstance(plan.get("actions"), list)
+        or len(plan["actions"]) != 60
+        or allowlist.get("manifest_id") != manifest["manifest_id"]
+        or allowlist.get("allowlist_version") != "phase2b.live-allowlist.v1"
+        or allowlist.get("maximum_new_live_attempts") != MAX_NEW_ATTEMPTS
+        or not isinstance(actual_entries, list)
+        or len(actual_entries) != MAX_NEW_ATTEMPTS
+    ):
+        raise ValueError("Persisted Phase 2B plan or allowlist envelope mismatch")
+    actual_by_id = {entry.get("release_asset_id"): entry for entry in actual_entries}
+    if len(actual_by_id) != len(actual_entries) or actual_by_id != expected_by_id:
+        raise ValueError("Persisted Phase 2B allowlist identities differ from the approved request set")
+    plan_actions = {item.get("release_asset_id"): item for item in plan["actions"]}
+    if len(plan_actions) != 60:
+        raise ValueError("Persisted dry-run contains duplicate release asset IDs")
+    for asset in store.expected["pair_assets"]:
+        action = plan_actions.get(asset["release_asset_id"])
+        expected_action = "reuse_verified_phase2a_source" if asset["mode"] == "imported_reuse" else "acquire"
+        if (
+            not action
+            or action.get("ordinal") != asset["ordinal"]
+            or action.get("identity") != asset["identity"]
+            or action.get("cache_path")
+            != (
+                asset["source_reference"]["source_cache_path"]
+                if asset["mode"] == "imported_reuse"
+                else asset["cache"]["relative_path"]
+            )
+            or action.get("request_parameters")
+            != request_parameters(asset["identity"], set(manifest["team_directory"]))
+            or action.get("action") != expected_action
+        ):
+            raise ValueError("Persisted Phase 2B dry-run action differs from the original plan")
+    return actual_by_id
 
 
 @dataclass(frozen=True)
@@ -670,11 +828,19 @@ class TransportError(RuntimeError):
         self.detail = detail
 
 
-def direct_transport(identity: Mapping[str, Any], timeout_seconds: int = TIMEOUT_SECONDS) -> TransportResult:
-    team_ids = {
-        team_id for team_id, _team_name in load_team_inventory(Path("research/pair-fit-v2/cache"))
-    }
+def direct_transport(
+    identity: Mapping[str, Any],
+    timeout_seconds: int = TIMEOUT_SECONDS,
+    *,
+    cache_root: Path,
+    approved_identities: Mapping[str, Mapping[str, Any]],
+) -> TransportResult:
+    team_ids = {team_id for team_id, _team_name in load_team_inventory(cache_root)}
     validate_pair_identity(identity, team_ids)
+    rid = release_asset_id(identity)
+    approved = approved_identities.get(rid)
+    if not approved or approved.get("identity") != identity:
+        raise ValueError("Transport identity is absent from the persisted Phase 2B allowlist")
     session = requests.Session()
     session.trust_env = False
     session.headers.update(RESEARCH_HEADERS)
@@ -708,6 +874,43 @@ def _numeric(value: Any) -> float | None:
     return result if math.isfinite(result) else None
 
 
+def strict_pair_identifier_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Require two distinct canonical positive-decimal IDs in every pair row."""
+    valid_keys: list[tuple[str, str]] = []
+    invalid = []
+    same_player = []
+    for index, row in enumerate(rows):
+        raw = row.get("GROUP_ID")
+        tokens = [token for token in raw.strip("-").split("-") if token] if isinstance(raw, str) else []
+        if len(tokens) != 2:
+            invalid.append({"row_index": index, "GROUP_ID": raw, "reason": "not_exactly_two_ids"})
+            continue
+        try:
+            first = strict_player_id(tokens[0], field="GROUP_ID player ID")
+            second = strict_player_id(tokens[1], field="GROUP_ID player ID")
+        except ValueError as exc:
+            invalid.append({"row_index": index, "GROUP_ID": raw, "reason": str(exc)})
+            continue
+        if first == second:
+            same_player.append({"row_index": index, "GROUP_ID": raw, "player_id": first})
+            continue
+        canonical = tuple(sorted((first, second)))
+        if row.get("pair_key") != canonical:
+            invalid.append({"row_index": index, "GROUP_ID": raw, "reason": "attached_pair_key_mismatch"})
+            continue
+        valid_keys.append(canonical)
+    counts = Counter(valid_keys)
+    return {
+        "raw_rows": len(rows),
+        "valid_rows": len(valid_keys),
+        "invalid_rows": len(invalid) + len(same_player),
+        "malformed_rows": invalid,
+        "same_player_rows": same_player,
+        "duplicate_canonical_pairs": sum(count - 1 for count in counts.values() if count > 1),
+        "unique_canonical_pairs": len(counts),
+    }
+
+
 def _positive_target_failures(rows: list[dict[str, Any]], tolerance: float = 0.1000000001) -> list[dict[str, Any]]:
     failures = []
     for row in rows:
@@ -735,6 +938,8 @@ def audit_team_payloads(team_id: str, base_payload: Mapping[str, Any], advanced_
     advanced = _pair_rows(advanced_payload, TARGET_SEASON, team_id)
     base_identity = summarize_pair_rows(base)
     advanced_identity = summarize_pair_rows(advanced)
+    strict_base_identity = strict_pair_identifier_audit(base)
+    strict_advanced_identity = strict_pair_identifier_audit(advanced)
     reconciliation = join_pair_measures(base, advanced)
     failures = _positive_target_failures(advanced)
     clean = (
@@ -742,6 +947,10 @@ def audit_team_payloads(team_id: str, base_payload: Mapping[str, Any], advanced_
         and advanced_identity["same_player_or_malformed_rows"] == 0
         and base_identity["duplicate_canonical_pairs"] == 0
         and advanced_identity["duplicate_canonical_pairs"] == 0
+        and strict_base_identity["invalid_rows"] == 0
+        and strict_advanced_identity["invalid_rows"] == 0
+        and strict_base_identity["duplicate_canonical_pairs"] == 0
+        and strict_advanced_identity["duplicate_canonical_pairs"] == 0
         and reconciliation["base_only_pairs"] == 0
         and reconciliation["advanced_only_pairs"] == 0
         and reconciliation["one_to_one"]
@@ -751,6 +960,8 @@ def audit_team_payloads(team_id: str, base_payload: Mapping[str, Any], advanced_
         "team_id": team_id,
         "base_identity": base_identity,
         "advanced_identity": advanced_identity,
+        "strict_base_identity": strict_base_identity,
+        "strict_advanced_identity": strict_advanced_identity,
         "reconciliation": reconciliation,
         "positive_possession_target_failures": failures,
         "clean_release_gate": clean,
@@ -798,9 +1009,23 @@ def run_acquisition(
         raise ValueError("Live acquisition requires explicit live_acquisition=True")
     if timeout_seconds != TIMEOUT_SECONDS or delay_seconds < 1.0:
         raise ValueError("Phase 2B requires timeout=30 and at least one-second delay")
-    verify_all_imports_and_dependencies(store)
-    transport = transport or direct_transport
     manifest = store.load()
+    if manifest.get("release_analysis_failure") is not None:
+        return _run_result(
+            manifest,
+            completed=False,
+            stop_category="persisted_release_analysis_failure",
+            persisted_analysis_failure=deepcopy(manifest["release_analysis_failure"]),
+        )
+    approved_identities = validate_persisted_plan_evidence(store)
+    verify_all_imports_and_dependencies(store)
+    if transport is None:
+        transport = lambda identity, timeout: direct_transport(
+            identity,
+            timeout,
+            cache_root=store.cache_root,
+            approved_identities=approved_identities,
+        )
     attempts_so_far = sum(len(asset["attempt_history"]) for asset in manifest["pair_assets"])
     if attempts_so_far > MAX_NEW_ATTEMPTS:
         raise ValueError("Phase 2B cumulative live-attempt budget exceeded")
@@ -818,6 +1043,9 @@ def run_acquisition(
             continue
         if asset["status"] != "planned":
             return _run_result(manifest, completed=False, stop_category=f"existing_{asset['status']}")
+        approved = approved_identities.get(asset["release_asset_id"])
+        if not approved or approved.get("identity") != asset["identity"] or approved.get("ordinal") != asset["ordinal"]:
+            return _run_result(manifest, completed=False, stop_category="allowlist_identity_mismatch")
         if asset["attempt_count"] or attempts_so_far >= MAX_NEW_ATTEMPTS:
             return _run_result(manifest, completed=False, stop_category="retry_or_budget_prohibited")
         cache_path = store.cache_root / asset["cache"]["relative_path"]
@@ -1128,7 +1356,17 @@ def analyze_release(store: ReleaseStore) -> dict[str, Any]:
     totals = _player_rows(
         verify_phase2a_asset_cache(source_manifest["raw_assets"][11], store.cache_root, source_manifest)["payload"]
     )
+    per100_player_audit = strict_player_source_audit(
+        per100, source_manifest["raw_assets"][10]["identity"]
+    )
+    totals_player_audit = strict_player_source_audit(
+        totals, source_manifest["raw_assets"][11]["identity"]
+    )
+    if per100_player_audit["player_ids"] != totals_player_audit["player_ids"]:
+        raise ValueError("Prior-player Per100Possessions and Totals ID sets differ")
     prior_index = player_rows_by_id(attach_prior_context(per100, PRIOR_FEATURE_SEASON))
+    if any(len(rows) != 1 for rows in prior_index.values()):
+        raise ValueError("Prior-player index must contain exactly one row per stable ID")
     advanced_lookup = {(row["team_id"], row.get("pair_key")): row for row in all_advanced}
     coverage_by_team = {}
     all_join_input = []
@@ -1262,22 +1500,40 @@ def analyze_release(store: ReleaseStore) -> dict[str, Any]:
                 "totals_unique_ids": len({str(row["PLAYER_ID"]) for row in totals}),
                 "exact_id_set_match": {str(row["PLAYER_ID"]) for row in per100}
                 == {str(row["PLAYER_ID"]) for row in totals},
+                "per100_strict_id_audit": {
+                    key: value for key, value in per100_player_audit.items() if key != "player_ids"
+                },
+                "totals_strict_id_audit": {
+                    key: value for key, value in totals_player_audit.items() if key != "player_ids"
+                },
             },
             "policy": "descriptive_only_final_missing_history_policy_deferred",
         },
         "canary_reproduction": {
             "matched_rows": canary_matches,
-            "expected_matched_rows": 880,
+            "expected_matched_rows": sum(
+                team["reconciliation"]["matched_pairs"]
+                for team in source_analysis["teams"].values()
+            ),
             "coverage": canary_coverage,
             "phase2a_expected_coverage": source_analysis["prior_coverage"]["combined"],
-            "exact": canary_matches == 880
-            and canary_coverage["pairs"]["both_players_matched"] == 526
-            and canary_coverage["pairs"]["neither_player_matched"] == 47
+            "exact": canary_matches
+            == sum(
+                team["reconciliation"]["matched_pairs"]
+                for team in source_analysis["teams"].values()
+            )
+            and canary_coverage["pairs"]["both_players_matched"]
+            == source_analysis["prior_coverage"]["combined"]["pairs"]["both_players_matched"]
+            and canary_coverage["pairs"]["neither_player_matched"]
+            == source_analysis["prior_coverage"]["combined"]["pairs"]["neither_player_matched"]
             and (
                 canary_coverage["pairs"]["only_player_1_matched"]
                 + canary_coverage["pairs"]["only_player_2_matched"]
             )
-            == 307,
+            == (
+                source_analysis["prior_coverage"]["combined"]["pairs"]["only_player_1_matched"]
+                + source_analysis["prior_coverage"]["combined"]["pairs"]["only_player_2_matched"]
+            ),
         },
         "release_gates": {
             "request_set_complete": len(asset_ledger) == 60,

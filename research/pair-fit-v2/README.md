@@ -8,7 +8,7 @@ This folder contains the Phase 0 feasibility scaffold, Phase 1A evidence audit a
 
 Phase 2B stopped at its first required review gate. The immutable prerequisites, ten imported Phase 2A pair assets, and two player dependencies verified, and the 60-entry dry run correctly identified 50 new identities. The Atlanta Base transport invocation then failed locally before HTTP because the adapter built its team allowlist incorrectly. That invocation consumed one attempt, was not retried, and no later asset was attempted. Classification: `2023-24 raw acquisition incomplete; historical expansion blocked`.
 
-The adapter defect is regression-tested and corrected in the uncommitted working tree, but the original failed event remains immutable. A retry/continuation requires separate explicit authorization. Phase 2C and another season have not started. See `PHASE2B_RAW_SEASON_REPORT.md`.
+The adapter defect is regression-tested and corrected, but the original failed event remains immutable. A bounded offline safety-hardening checkpoint now also enforces persisted analysis stops across restarts, binds transport to the selected cache root and original request allowlist, makes `--dry-run` a read-only preview, and applies strict pair/prior-player identity checks. No acquisition was resumed and the original 50-attempt policy was not changed; an Atlanta retry, any cumulative ceiling of 51, and continuation all require separate explicit authorization. Phase 2C and another season have not started. See `PHASE2B_RAW_SEASON_REPORT.md` and `PHASE2B_SAFETY_HARDENING_CHECKPOINT.md`.
 
 ## Phase 2A status
 
@@ -78,6 +78,7 @@ Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique 
 - Phase 2A historical-canary report: `PHASE2A_HISTORICAL_CANARY_REPORT.md`
 - Phase 2A.1 reviewed-promotion report: `PHASE2A1_PLAYER_SCHEMA_PROMOTION_REPORT.md`
 - Phase 2B raw-season report: `PHASE2B_RAW_SEASON_REPORT.md`
+- Phase 2B offline safety-hardening checkpoint: `PHASE2B_SAFETY_HARDENING_CHECKPOINT.md`
 - Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`, `tests/test_phase1b_architecture.py`, `tests/test_phase1d_exhaustiveness.py`, and `tests/test_phase1e_recovery.py`
 
 ## Commands
