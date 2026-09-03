@@ -1,6 +1,118 @@
 # Phase 2B: 2023-24 raw-season acquisition review gate
 
-## Decision
+## Continuation result (2026-09-03)
+
+Primary classification: **`2023-24 raw release supported with population caveats; next historical phase ready for separate authorization`**.
+
+This current result supersedes the original operational stop below without rewriting it. Starting from clean branch `research/pair-fit-v2` at commit `958d004bfc7b79ef5b4c6bd64e8fcf1b4f90af62`, a create-once continuation authorization preserved byte-identical snapshots of the stopped manifest and ledger, retained Atlanta attempt 1, authorized only Atlanta Base attempt 2 and the 49 untouched original identities, and extended the effective cumulative ceiling to 51. The legacy authorization remains unchanged at 50 with no retries unless the validated extension is present.
+
+### Authorization and acquisition accounting
+
+| Item | Result |
+|---|---:|
+| Historical attempts before continuation | 1 (Atlanta Base; pre-HTTP local failure) |
+| Continuation permissions | 50 |
+| Continuation attempts / actual HTTP requests | 50 / 50 |
+| HTTP 200 / verified continuation assets | 50 / 50 |
+| Failures / quarantines / unattempted | 0 / 0 / 0 |
+| Cumulative attempts | 51 |
+| Effective cumulative ceiling / remaining | 51 / 0 |
+| Imported Phase 2A pair assets | 10 verified reuses |
+| Reused player dependencies / new player requests | 2 / 0 |
+
+Authorization ID: `phase2b-continuation-authorization:c94e9eef045aca8f09164bb2`. The original request order and identities were retained. Atlanta Base attempt 2 ran first; no asset received an unauthorized retry. Each attempt was saved before transport. Requests used the existing direct session, `trust_env=False`, the approved headers, 30-second timeout, disabled redirects, no retry adapter, and at least a one-second sequential delay.
+
+Across the 50 successful responses, reported request latency totaled 90.751 seconds (minimum 1.483, median 1.782, maximum 2.242). Response bodies totaled 2,284,742 bytes (range 31,831–68,094). The active manifest contains every per-asset latency, response/cache byte count, raw hash, canonical hash, schema fingerprint, and transition.
+
+### Snapshot and current-state provenance
+
+| Artifact | SHA-256 |
+|---|---|
+| Stopped manifest snapshot | `4a66c6dd9af49eb57beb794b7867d0d49606b90021b6ae69669d5e7435c1870e` |
+| Stopped ledger snapshot | `228424bb699cf7d3b72d78396f176e03eb41d3f66d985912e1c0761d9d16f177` |
+| Snapshot metadata | `666d2fdfab3cef80bda0b6e9bb9c3ae8e35668704f797fa0de5c22fd35229780` |
+| Continuation authorization | `67c9807f31d4c3a76a67f85f2cb718473d11e7642534641a7d42f78def72805e` |
+
+The original dry run remains `e42e92ddddb6f1d877b8cf23a6941d7831797de85d3bb39cae1e4c9ee28ff4b2`; the original allowlist remains `bcbca56d29518ae2a98ba17a14271baa1b18cfe082147e561d9bda73a1ae4add`. Phase 1 and Phase 2A/2A.1 evidence is unchanged. Active manifest and ledger hashes are reported in the final verification subsection because they correctly changed as attempts and validations were appended.
+
+### Release audit
+
+All 60 pair assets replay and match the approved Base/Advanced schema contract `schema-contract:cf262e22edf0272f5fe53293`; no coercion or drift was accepted. Every row has exactly two distinct canonical positive-decimal player IDs. Base and Advanced reconcile one-to-one for all 5,207 observation keys, with zero Base-only, Advanced-only, or duplicate keys. All 5,190 positive-possession rows satisfy the directly returned standard net-rating identity within displayed precision; maximum standard and estimated identity differences are both approximately 0.1. The 17 `POSS=0` rows are retained and explicitly target-ineligible.
+
+| Team | Rows | Players | Theoretical / absent | Base MIN min | POSS min | Ineligible | Prior complete / one / both | Complete prior POSS share | Boundary |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| Atlanta | 154 | 19 | 171 / 17 | 0.198333 | 1 | 0 | 113 / 40 / 1 | 96.8% | no signal |
+| Boston | 153 | 19 | 171 / 18 | 0.420000 | 1 | 0 | 126 / 26 / 1 | 98.9% | no signal |
+| Cleveland | 136 | 18 | 153 / 17 | 0.138333 | 0 | 1 | 84 / 46 / 6 | 87.5% | no signal |
+| New Orleans | 139 | 20 | 190 / 51 | 0.006667 | 0 | 1 | 101 / 34 / 4 | 87.7% | no signal |
+| Chicago | 129 | 18 | 153 / 24 | 0.350000 | 1 | 0 | 76 / 45 / 8 | 93.2% | no signal |
+| Dallas | 176 | 22 | 231 / 55 | 0.065000 | 1 | 0 | 103 / 66 / 7 | 72.3% | no signal |
+| Denver | 123 | 17 | 136 / 13 | 0.048333 | 0 | 2 | 71 / 46 / 6 | 90.7% | no signal |
+| Golden State | 133 | 18 | 153 / 20 | 0.536667 | 2 | 0 | 69 / 55 / 9 | 68.1% | no signal |
+| Houston | 128 | 17 | 136 / 8 | 0.386667 | 1 | 0 | 76 / 46 / 6 | 77.1% | no signal |
+| LA Clippers | 150 | 21 | 210 / 60 | 0.113333 | 0 | 1 | 121 / 28 / 1 | 95.7% | no signal |
+| LA Lakers | 169 | 21 | 210 / 41 | 0.016667 | 0 | 1 | 99 / 57 / 13 | 97.1% | no signal |
+| Miami | 185 | 21 | 210 / 25 | 0.066667 | 1 | 0 | 165 / 20 / 0 | 78.5% | no signal |
+| Milwaukee | 162 | 21 | 210 / 48 | 0.296667 | 1 | 0 | 107 / 50 / 5 | 92.0% | no signal |
+| Minnesota | 138 | 19 | 171 / 33 | 0.325000 | 1 | 0 | 128 / 10 / 0 | 99.4% | no signal |
+| Brooklyn | 171 | 21 | 210 / 39 | 0.065000 | 1 | 0 | 100 / 62 / 9 | 88.5% | no signal |
+| New York | 204 | 26 | 325 / 121 | 0.015000 | 0 | 5 | 157 / 42 / 5 | 98.8% | no signal |
+| Orlando | 132 | 18 | 153 / 21 | 0.138333 | 1 | 0 | 104 / 27 / 1 | 87.5% | no signal |
+| Indiana | 172 | 22 | 231 / 59 | 0.368333 | 1 | 0 | 118 / 50 / 4 | 88.4% | no signal |
+| Philadelphia | 229 | 28 | 378 / 149 | 0.666667 | 1 | 0 | 174 / 53 / 2 | 96.0% | no signal |
+| Phoenix | 184 | 22 | 231 / 47 | 0.556667 | 2 | 0 | 176 / 8 / 0 | 99.8% | no signal |
+| Portland | 187 | 22 | 231 / 44 | 0.003333 | 0 | 1 | 74 / 86 / 27 | 40.1% | no signal |
+| Sacramento | 160 | 20 | 190 / 30 | 0.001667 | 0 | 4 | 91 / 58 / 11 | 92.3% | no signal |
+| San Antonio | 152 | 20 | 190 / 38 | 0.683333 | 1 | 0 | 121 / 30 / 1 | 77.3% | no signal |
+| Oklahoma City | 192 | 22 | 231 / 39 | 0.015000 | 0 | 1 | 120 / 65 / 7 | 57.6% | no signal |
+| Toronto | 250 | 30 | 435 / 185 | 0.508333 | 1 | 0 | 147 / 84 / 19 | 77.5% | signal |
+| Utah | 176 | 21 | 210 / 34 | 0.036667 | 1 | 0 | 121 / 52 / 3 | 67.9% | no signal |
+| Memphis | 250 | 32 | 496 / 246 | 19.800000 | 38 | 0 | 164 / 71 / 15 | 78.0% | signal |
+| Washington | 207 | 24 | 276 / 69 | 0.653333 | 1 | 0 | 139 / 63 / 5 | 76.4% | no signal |
+| Detroit | 250 | 30 | 435 / 185 | 6.700000 | 13 | 0 | 177 / 69 / 4 | 68.1% | signal |
+| Charlotte | 216 | 26 | 325 / 109 | 0.268333 | 1 | 0 | 92 / 101 / 23 | 38.3% | no signal |
+
+Toronto, Memphis, and Detroit each landed on exactly 250 rows in both measures. Their rank maxima extend beyond 250, and their theoretical-minus-returned counts are respectively 185, 246, and 185. This is a returned-row boundary signal, not proof of 2023-24 omission. No date-window or alternate-endpoint diagnostic was authorized; global population exhaustiveness remains unproven.
+
+League-wide Base minutes: minimum 0.001667, p25 21.011667, median 81.54, p75 294.338334, p90 637.884333, maximum 2,256.235, summed overlapping pair exposure 1,186,790.327. Advanced possessions: minimum 0, p25 45, median 172, p75 620, p90 1,347.4, maximum 4,693, summed overlapping pair exposure 2,501,914. These sums overlap across pairs and are not independent NBA minutes or possessions.
+
+Extreme net ratings concentrate at low exposure: among 397 rows at 1–9 possessions, 215 have absolute net rating at least 50 and 107 at least 100; at 10–24, the counts are 119 and 15 among 429 rows. At 100-plus possessions, only 5 of 3,177 rows exceed 50 in absolute value and none exceed 100. This is descriptive and does not select an exposure threshold.
+
+### Prior-history coverage and canary reproduction
+
+The two immutable 2022-23 player sources each retain 539 rows, 539 unique strict IDs, no malformed/duplicate IDs, and exact cross-mode ID-set equality. Across 570 target-season pair players, 449 have a prior record and 121 do not. Of 5,207 pair observations, 3,514 have both players matched, 1,490 have one missing, and 203 have both missing; complete-pair coverage is 67.49%. Complete-history rows represent 82.29% of summed Base minutes and 82.22% of summed possessions; incomplete rows are preserved and represent 17.71% and 17.78%. No imputation or exclusion policy was selected.
+
+The original five-team canary reproduces exactly: 880 matches; 83/108 player coverage; 526 complete, 307 one-missing, and 47 both-missing pair rows; 74.06% of summed canary possessions in complete-history rows. This confirms the full audit did not change the canary interpretation.
+
+### Current decision questions
+
+1. **All 60 verified?** Yes: ten immutable imports and 50 newly acquired assets.
+2. **Both player dependencies unchanged with zero requests?** Yes: both 539-row sources replayed; no player request occurred.
+3. **All pair schemas identical?** Yes: all Base and Advanced assets match the approved contract without coercion.
+4. **All 30 teams reconciled?** Yes: 5,207 Base and 5,207 Advanced rows form 5,207 one-to-one full observation keys with zero unmatched or duplicates.
+5. **Targets coherent and ineligible rows?** Yes for directly returned positive-possession standard ratings; 17 zero-possession rows are retained as target-ineligible.
+6. **Boundary signals or omissions?** Toronto, Memphis, and Detroit show exact 250-row boundary signals. No 2023-24 omission is proven, and exhaustiveness remains unproven.
+7. **Full coverage versus canary?** Full pair coverage is 67.49% complete versus 59.77% in the canary; exposure-weighted complete possession share is 82.22% versus 74.06%.
+8. **Teams, bands, or IDs for later analysis?** Coverage and exposure vary materially by team; low-possession rows contain most rating extremes. This is audit evidence, not a feature, threshold, or missing-history decision.
+9. **Immutable evidence unchanged?** Yes. Stopped snapshots reproduce the former active hashes, and all Phase 1/2A sources plus the initial plan/allowlist remain unchanged.
+10. **Persistence/resume ready?** Yes for this completed request set: authorization, attempt history, raw caches, metadata, and zero remaining permissions replay. No fresh budget or retry is implied.
+11. **Next historical phase ready?** The raw release supports a separately authorized next phase, subject to population caveats; no next season is authorized here.
+12. **Deferred decisions?** Target choice, positive exposure threshold, missing-history policy, features, weights, curation, validation, interaction formula, and modeling remain deferred.
+
+The next authorized work should review the three 250-row team-seasons and decide whether additional bounded population evidence is necessary before historical expansion. Formal learning checkpoints remain deferred until historical population acquisition is complete or the user explicitly requests them. Organizational agentic-workflow standards must be reviewed and applied before the next authorized phase.
+
+### Continuation reproducibility and verification
+
+- Two independent network-blocked analyses produced identical deterministic SHA-256 `00f4324311368184d1c184be89d23b866551678b3715c262e76b36f459e24b82`.
+- Active completed-state manifest SHA-256: `af8acbc10adf110f43c7c53a0ab2d6b402e3121fbe57e2d8b5dc3de7072e689e`.
+- Active completed-state attempt-ledger SHA-256: `d298f15316dec37cfb3efe6fb9f1451cb3052ed7a1f0b603ce0a4d6057f62dcb`.
+- Continuation authorization, stopped snapshots, original dry run, and original allowlist retain the hashes listed above.
+- Pre-acquisition and final post-acquisition focused Phase 2B suites: 38 passed each. Pre-acquisition and final complete offline research suites: 238 passed each.
+- The Git-ignored Phase 2B raw namespace contains 50 response payloads and 50 metadata records. All replay through the active manifest; no verified asset was refetched.
+
+---
+
+## Original decision at the first stop (historical; operationally superseded)
 
 Primary classification: **`2023-24 raw acquisition incomplete; historical expansion blocked`**.
 

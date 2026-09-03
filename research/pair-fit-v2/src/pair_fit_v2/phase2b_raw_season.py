@@ -72,6 +72,10 @@ ENDPOINT = "TeamDashLineups"
 MEASURES = ("Base", "Advanced")
 TIMEOUT_SECONDS = 30
 MAX_NEW_ATTEMPTS = 50
+CONTINUATION_MAX_FURTHER_ATTEMPTS = 50
+CONTINUATION_CUMULATIVE_CEILING = 51
+CONTINUATION_STARTING_COMMIT = "958d004bfc7b79ef5b4c6bd64e8fcf1b4f90af62"
+ATLANTA_BASE_RELEASE_ASSET_ID = "phase2b-pair-release:b520622c9ac1bfc91fcf3a28"
 MANIFEST_VERSION = "phase2b.raw-season-release.v1"
 ANALYSIS_VERSION = "phase2b.release-audit.v1"
 PAIR_URL = "https://stats.nba.com/stats/teamdashlineups"
@@ -107,6 +111,19 @@ def phase2b_manifest_path(cache_root: Path) -> Path:
 
 def phase2b_ledger_path(cache_root: Path) -> Path:
     return cache_root / "phase2b/attempt_ledger.json"
+
+
+def continuation_authorization_path(cache_root: Path) -> Path:
+    return cache_root / "phase2b/continuation_authorization.json"
+
+
+def continuation_snapshot_paths(cache_root: Path) -> dict[str, Path]:
+    root = cache_root / "phase2b/snapshots"
+    return {
+        "manifest": root / "stopped_release_manifest.json",
+        "ledger": root / "stopped_attempt_ledger.json",
+        "metadata": root / "stopped_snapshot.json",
+    }
 
 
 def validate_season_scope(target_season: str, prior_feature_season: str) -> None:
@@ -380,6 +397,18 @@ def validate_manifest(manifest: Mapping[str, Any], expected: Mapping[str, Any]) 
             raise ValueError("Unknown Phase 2B release-entry mode")
     if (imports, new_assets, len(team_ids)) != (10, 50, 30):
         raise ValueError("Phase 2B must contain 10 imports, 50 new assets, and 30 teams")
+    extensions = manifest.get("authorization_extensions", [])
+    if not isinstance(extensions, list) or len(extensions) > 1:
+        raise ValueError("Phase 2B permits at most one continuation authorization extension")
+    for asset in assets:
+        history = asset.get("attempt_history")
+        if not isinstance(history, list) or asset.get("attempt_count") != len(history):
+            raise ValueError("Phase 2B attempt count/history mismatch")
+        numbers = [attempt.get("attempt_number") for attempt in history]
+        if numbers != list(range(1, len(history) + 1)):
+            raise ValueError("Phase 2B attempt numbering is not contiguous")
+        if len(history) > (2 if asset["release_asset_id"] == ATLANTA_BASE_RELEASE_ASSET_ID else 1):
+            raise ValueError("Phase 2B asset attempt history exceeds its bounded authorization")
 
 
 class ReleaseStore:
@@ -418,6 +447,8 @@ class ReleaseStore:
             "ledger_version": "phase2b.attempt-ledger.v1",
             "manifest_id": manifest["manifest_id"],
             "authorization": manifest["authorization"],
+            "authorization_extensions": deepcopy(manifest.get("authorization_extensions", [])),
+            "release_analysis_failure": deepcopy(manifest.get("release_analysis_failure")),
             "attempts": [
                 {
                     "ordinal": asset["ordinal"],
@@ -814,6 +845,261 @@ def validate_persisted_plan_evidence(store: ReleaseStore) -> dict[str, dict[str,
     return actual_by_id
 
 
+def _validate_attempt_ledger(manifest: Mapping[str, Any], ledger: Mapping[str, Any]) -> None:
+    if (
+        ledger.get("manifest_id") != manifest["manifest_id"]
+        or ledger.get("authorization") != manifest["authorization"]
+        or ledger.get("authorization_extensions", [])
+        != manifest.get("authorization_extensions", [])
+        or ledger.get("release_analysis_failure") != manifest.get("release_analysis_failure")
+        or not isinstance(ledger.get("attempts"), list)
+        or len(ledger["attempts"]) != 60
+    ):
+        raise ValueError("Phase 2B attempt ledger envelope mismatch")
+    assets = {asset["release_asset_id"]: asset for asset in manifest["pair_assets"]}
+    for entry in ledger["attempts"]:
+        asset = assets.get(entry.get("release_asset_id"))
+        if (
+            asset is None
+            or entry.get("ordinal") != asset["ordinal"]
+            or entry.get("identity") != asset["identity"]
+            or entry.get("status") != asset["status"]
+            or entry.get("attempt_history") != asset["attempt_history"]
+            or entry.get("last_error") != asset["last_error"]
+        ):
+            raise ValueError("Phase 2B attempt ledger differs from the active manifest")
+
+
+def _require_original_stopped_state(manifest: Mapping[str, Any]) -> None:
+    if manifest.get("release_analysis_failure") is not None:
+        raise ValueError("Continuation cannot activate with a persisted analysis failure")
+    if manifest.get("authorization_extensions"):
+        raise ValueError("Continuation authorization is already active")
+    imported = [asset for asset in manifest["pair_assets"] if asset["mode"] == "imported_reuse"]
+    new_assets = [asset for asset in manifest["pair_assets"] if asset["mode"] == "new_acquisition"]
+    if len(imported) != 10 or any(asset["status"] != "reused_verified" for asset in imported):
+        raise ValueError("Stopped state must retain ten verified imports")
+    atlanta = [asset for asset in new_assets if asset["release_asset_id"] == ATLANTA_BASE_RELEASE_ASSET_ID]
+    if len(atlanta) != 1:
+        raise ValueError("Stopped state lacks the exact Atlanta Base asset")
+    atlanta = atlanta[0]
+    history = atlanta["attempt_history"]
+    if (
+        atlanta["ordinal"] != 1
+        or atlanta["status"] != "failed"
+        or atlanta["attempt_count"] != 1
+        or len(history) != 1
+        or history[0].get("attempt_number") != 1
+        or history[0].get("status") != "failed"
+        or history[0].get("error_category") != "unexpected_exception"
+        or "http_status" in history[0]
+    ):
+        raise ValueError("Atlanta attempt 1 is not the preserved pre-HTTP failure")
+    remaining = [asset for asset in new_assets if asset["release_asset_id"] != ATLANTA_BASE_RELEASE_ASSET_ID]
+    if len(remaining) != 49 or any(
+        asset["status"] != "planned" or asset["attempt_count"] != 0 or asset["attempt_history"]
+        for asset in remaining
+    ):
+        raise ValueError("Continuation requires exactly 49 untouched planned identities")
+
+
+def _continuation_permissions(
+    store: ReleaseStore, approved_identities: Mapping[str, Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    permissions = []
+    for asset in store.expected["pair_assets"]:
+        if asset["mode"] != "new_acquisition":
+            continue
+        approved = approved_identities.get(asset["release_asset_id"])
+        if (
+            approved is None
+            or approved.get("ordinal") != asset["ordinal"]
+            or approved.get("identity") != asset["identity"]
+        ):
+            raise ValueError("Continuation permission differs from the original allowlist")
+        permissions.append(
+            {
+                "ordinal": asset["ordinal"],
+                "release_asset_id": asset["release_asset_id"],
+                "identity": asset["identity"],
+                "permitted_attempt_number": (
+                    2 if asset["release_asset_id"] == ATLANTA_BASE_RELEASE_ASSET_ID else 1
+                ),
+            }
+        )
+    if len(permissions) != CONTINUATION_MAX_FURTHER_ATTEMPTS:
+        raise ValueError("Continuation must contain exactly 50 single-use permissions")
+    return permissions
+
+
+def continuation_preview(store: ReleaseStore) -> dict[str, Any]:
+    """Return the exact read-only retry/continuation plan for the stopped state."""
+    manifest = store.load()
+    _require_original_stopped_state(manifest)
+    approved = validate_persisted_plan_evidence(store)
+    verify_all_imports_and_dependencies(store)
+    permissions = _continuation_permissions(store, approved)
+    return {
+        "preview_version": "phase2b.continuation-preview.v1",
+        "network_calls": 0,
+        "side_effects": [],
+        "manifest_id": manifest["manifest_id"],
+        "starting_code_commit": CONTINUATION_STARTING_COMMIT,
+        "historical_attempts": 1,
+        "permitted_remaining_attempts": len(permissions),
+        "effective_cumulative_ceiling": CONTINUATION_CUMULATIVE_CEILING,
+        "sole_retry_asset_id": ATLANTA_BASE_RELEASE_ASSET_ID,
+        "permissions": permissions,
+    }
+
+
+def _snapshot_stopped_state(store: ReleaseStore, manifest: Mapping[str, Any]) -> dict[str, Any]:
+    paths = continuation_snapshot_paths(store.cache_root)
+    existing = {name: path.exists() for name, path in paths.items()}
+    if any(existing.values()) and not all(existing.values()):
+        raise ValueError("Stopped-state snapshot is incomplete; overwrite prohibited")
+    if all(existing.values()):
+        metadata = read_json(paths["metadata"])
+    else:
+        manifest_bytes = store.path.read_bytes()
+        ledger_bytes = store.ledger_path.read_bytes()
+        _validate_attempt_ledger(manifest, json.loads(ledger_bytes.decode("utf-8")))
+        atomic_write_bytes_new(paths["manifest"], manifest_bytes)
+        atomic_write_bytes_new(paths["ledger"], ledger_bytes)
+        metadata = {
+            "snapshot_version": "phase2b.stopped-state-snapshot.v1",
+            "manifest_id": manifest["manifest_id"],
+            "starting_code_commit": CONTINUATION_STARTING_COMMIT,
+            "created_at": store.clock(),
+            "manifest_path": str(paths["manifest"].relative_to(store.cache_root)).replace("\\", "/"),
+            "ledger_path": str(paths["ledger"].relative_to(store.cache_root)).replace("\\", "/"),
+            "manifest_sha256": raw_body_hash(manifest_bytes),
+            "ledger_sha256": raw_body_hash(ledger_bytes),
+        }
+        atomic_write_bytes_new(
+            paths["metadata"],
+            (json.dumps(metadata, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
+    if (
+        metadata.get("snapshot_version") != "phase2b.stopped-state-snapshot.v1"
+        or metadata.get("manifest_id") != manifest["manifest_id"]
+        or metadata.get("starting_code_commit") != CONTINUATION_STARTING_COMMIT
+        or metadata.get("manifest_sha256") != _sha256_file(paths["manifest"])
+        or metadata.get("ledger_sha256") != _sha256_file(paths["ledger"])
+        or paths["manifest"].read_bytes() != store.path.read_bytes()
+        or paths["ledger"].read_bytes() != store.ledger_path.read_bytes()
+    ):
+        raise ValueError("Stopped-state snapshot conflicts with the active stopped evidence")
+    return metadata
+
+
+def _authorization_logical(
+    store: ReleaseStore,
+    snapshot: Mapping[str, Any],
+    permissions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "authorization_version": "phase2b.continuation-authorization.v1",
+        "manifest_id": store.expected["manifest_id"],
+        "starting_code_commit": CONTINUATION_STARTING_COMMIT,
+        "original_authorization": deepcopy(store.expected["authorization"]),
+        "original_plan": {
+            "dry_run_sha256": _sha256_file(store.cache_root / "phase2b/dry_run.json"),
+            "live_allowlist_sha256": _sha256_file(store.cache_root / "phase2b/live_allowlist.json"),
+        },
+        "stopped_snapshot": deepcopy(snapshot),
+        "limits": {
+            "historical_attempts": 1,
+            "maximum_further_attempts": CONTINUATION_MAX_FURTHER_ATTEMPTS,
+            "effective_cumulative_ceiling": CONTINUATION_CUMULATIVE_CEILING,
+            "retries": {ATLANTA_BASE_RELEASE_ASSET_ID: 1},
+        },
+        "permissions": permissions,
+    }
+
+
+def validate_continuation_authorization(
+    store: ReleaseStore, manifest: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    extensions = manifest.get("authorization_extensions", [])
+    path = continuation_authorization_path(store.cache_root)
+    if not extensions and not path.exists():
+        return None
+    if len(extensions) != 1 or not path.exists():
+        raise ValueError("Continuation authorization file/manifest linkage is incomplete")
+    authorization = read_json(path)
+    approved = validate_persisted_plan_evidence(store)
+    permissions = _continuation_permissions(store, approved)
+    snapshot_paths = continuation_snapshot_paths(store.cache_root)
+    if not all(snapshot_path.exists() for snapshot_path in snapshot_paths.values()):
+        raise ValueError("Continuation stopped-state snapshot is missing")
+    snapshot = read_json(snapshot_paths["metadata"])
+    logical = _authorization_logical(store, snapshot, permissions)
+    authorization_id = stable_contract_id("phase2b-continuation-authorization", logical)
+    expected = {**logical, "authorization_id": authorization_id}
+    if authorization != expected:
+        raise ValueError("Persisted continuation authorization is invalid or tampered")
+    extension = extensions[0]
+    if (
+        extension.get("authorization_id") != authorization_id
+        or extension.get("authorization_path")
+        != str(path.relative_to(store.cache_root)).replace("\\", "/")
+        or extension.get("authorization_file_sha256") != _sha256_file(path)
+        or extension.get("starting_code_commit") != CONTINUATION_STARTING_COMMIT
+        or extension.get("limits") != authorization["limits"]
+    ):
+        raise ValueError("Active manifest continuation reference is invalid")
+    if (
+        snapshot.get("manifest_sha256") != _sha256_file(snapshot_paths["manifest"])
+        or snapshot.get("ledger_sha256") != _sha256_file(snapshot_paths["ledger"])
+    ):
+        raise ValueError("Stopped-state snapshot hash mismatch")
+    return authorization
+
+
+def activate_continuation(store: ReleaseStore) -> dict[str, Any]:
+    """Persist the single bounded extension after snapshotting the stopped state."""
+    manifest = store.load()
+    if manifest.get("authorization_extensions"):
+        authorization = validate_continuation_authorization(store, manifest)
+        return {**authorization, "activation_action": "validated_existing", "side_effects": []}
+    preview = continuation_preview(store)
+    manifest = store.load()
+    snapshot = _snapshot_stopped_state(store, manifest)
+    logical = _authorization_logical(store, snapshot, preview["permissions"])
+    authorization = {
+        **logical,
+        "authorization_id": stable_contract_id("phase2b-continuation-authorization", logical),
+    }
+    path = continuation_authorization_path(store.cache_root)
+    body = (json.dumps(authorization, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if path.exists():
+        if path.read_bytes() != body:
+            raise ValueError("Existing continuation authorization conflicts; overwrite prohibited")
+    else:
+        atomic_write_bytes_new(path, body)
+    manifest["authorization_extensions"] = [
+        {
+            "authorization_id": authorization["authorization_id"],
+            "authorization_path": str(path.relative_to(store.cache_root)).replace("\\", "/"),
+            "authorization_file_sha256": _sha256_file(path),
+            "starting_code_commit": CONTINUATION_STARTING_COMMIT,
+            "activated_at": store.clock(),
+            "limits": deepcopy(authorization["limits"]),
+        }
+    ]
+    store.save(manifest)
+    validate_continuation_authorization(store, store.load())
+    return {
+        **authorization,
+        "activation_action": "created_once",
+        "side_effects": [
+            str(item.relative_to(store.cache_root)).replace("\\", "/")
+            for item in (*continuation_snapshot_paths(store.cache_root).values(), path, store.path, store.ledger_path)
+        ],
+    }
+
+
 @dataclass(frozen=True)
 class TransportResult:
     status_code: int
@@ -850,6 +1136,7 @@ def direct_transport(
             PAIR_URL,
             params=request_parameters(identity, team_ids),
             timeout=timeout_seconds,
+            allow_redirects=False,
         )
         return TransportResult(response.status_code, response.content, time.perf_counter() - started)
     except requests.Timeout as exc:
@@ -977,12 +1264,32 @@ def _team_payloads(team_id: str, store: ReleaseStore, manifest: Mapping[str, Any
     return payloads
 
 
-def _run_result(manifest: Mapping[str, Any], **extra: Any) -> dict[str, Any]:
+def _run_result(
+    manifest: Mapping[str, Any],
+    *,
+    effective_ceiling: int = MAX_NEW_ATTEMPTS,
+    continuation_authorization_id: str | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
     counts = Counter(asset["status"] for asset in manifest["pair_assets"])
     new_attempts = sum(len(asset["attempt_history"]) for asset in manifest["pair_assets"])
+    continuation_attempts = sum(
+        attempt.get("continuation_authorization_id") == continuation_authorization_id
+        for asset in manifest["pair_assets"]
+        for attempt in asset["attempt_history"]
+        if continuation_authorization_id is not None
+    )
+    actual_http_requests = sum(
+        "http_status" in attempt
+        for asset in manifest["pair_assets"]
+        for attempt in asset["attempt_history"]
+    )
     return {
-        "authorized_new_attempts": MAX_NEW_ATTEMPTS,
+        "legacy_authorized_new_attempts": MAX_NEW_ATTEMPTS,
+        "effective_cumulative_ceiling": effective_ceiling,
         "new_attempts": new_attempts,
+        "continuation_attempts": continuation_attempts,
+        "actual_http_requests": actual_http_requests,
         "new_verified": sum(
             asset["mode"] == "new_acquisition" and asset["status"] == "verified"
             for asset in manifest["pair_assets"]
@@ -991,7 +1298,8 @@ def _run_result(manifest: Mapping[str, Any], **extra: Any) -> dict[str, Any]:
         "failed": counts["failed"],
         "quarantined": counts["quarantined"],
         "unattempted": counts["planned"],
-        "remaining_budget": MAX_NEW_ATTEMPTS - new_attempts,
+        "remaining_budget": effective_ceiling - new_attempts,
+        "continuation_authorization_id": continuation_authorization_id,
         **extra,
     }
 
@@ -1010,6 +1318,7 @@ def run_acquisition(
     if timeout_seconds != TIMEOUT_SECONDS or delay_seconds < 1.0:
         raise ValueError("Phase 2B requires timeout=30 and at least one-second delay")
     manifest = store.load()
+    _validate_attempt_ledger(manifest, read_json(store.ledger_path))
     if manifest.get("release_analysis_failure") is not None:
         return _run_result(
             manifest,
@@ -1018,6 +1327,25 @@ def run_acquisition(
             persisted_analysis_failure=deepcopy(manifest["release_analysis_failure"]),
         )
     approved_identities = validate_persisted_plan_evidence(store)
+    continuation = validate_continuation_authorization(store, manifest)
+    effective_ceiling = (
+        continuation["limits"]["effective_cumulative_ceiling"]
+        if continuation is not None
+        else MAX_NEW_ATTEMPTS
+    )
+    continuation_id = continuation["authorization_id"] if continuation is not None else None
+    continuation_permissions = {
+        item["release_asset_id"]: item for item in (continuation or {}).get("permissions", [])
+    }
+
+    def result(**extra: Any) -> dict[str, Any]:
+        return _run_result(
+            manifest,
+            effective_ceiling=effective_ceiling,
+            continuation_authorization_id=continuation_id,
+            **extra,
+        )
+
     verify_all_imports_and_dependencies(store)
     if transport is None:
         transport = lambda identity, timeout: direct_transport(
@@ -1027,7 +1355,7 @@ def run_acquisition(
             approved_identities=approved_identities,
         )
     attempts_so_far = sum(len(asset["attempt_history"]) for asset in manifest["pair_assets"])
-    if attempts_so_far > MAX_NEW_ATTEMPTS:
+    if attempts_so_far > effective_ceiling:
         raise ValueError("Phase 2B cumulative live-attempt budget exceeded")
     for asset in manifest["pair_assets"]:
         if asset["mode"] == "imported_reuse":
@@ -1039,27 +1367,59 @@ def run_acquisition(
             except Exception as exc:
                 asset["last_error"] = {"category": "corrupt_verified_cache", "detail": str(exc)}
                 store.transition(manifest, asset, "failed", "corrupt_verified_cache", str(exc))
-                return _run_result(manifest, completed=False, stop_category="corrupt_verified_cache")
+                return result(completed=False, stop_category="corrupt_verified_cache")
             continue
-        if asset["status"] != "planned":
-            return _run_result(manifest, completed=False, stop_category=f"existing_{asset['status']}")
+        permission = continuation_permissions.get(asset["release_asset_id"])
+        retrying_atlanta = (
+            continuation is not None
+            and asset["release_asset_id"] == ATLANTA_BASE_RELEASE_ASSET_ID
+            and asset["status"] == "failed"
+            and asset["attempt_count"] == 1
+            and permission is not None
+            and permission["permitted_attempt_number"] == 2
+        )
+        if asset["status"] != "planned" and not retrying_atlanta:
+            return result(completed=False, stop_category=f"existing_{asset['status']}")
         approved = approved_identities.get(asset["release_asset_id"])
         if not approved or approved.get("identity") != asset["identity"] or approved.get("ordinal") != asset["ordinal"]:
-            return _run_result(manifest, completed=False, stop_category="allowlist_identity_mismatch")
-        if asset["attempt_count"] or attempts_so_far >= MAX_NEW_ATTEMPTS:
-            return _run_result(manifest, completed=False, stop_category="retry_or_budget_prohibited")
+            return result(completed=False, stop_category="allowlist_identity_mismatch")
+        next_attempt_number = len(asset["attempt_history"]) + 1
+        if continuation is None:
+            permitted = asset["status"] == "planned" and next_attempt_number == 1
+        else:
+            permitted = (
+                permission is not None
+                and permission.get("ordinal") == asset["ordinal"]
+                and permission.get("identity") == asset["identity"]
+                and permission.get("permitted_attempt_number") == next_attempt_number
+            )
+        if not permitted or attempts_so_far >= effective_ceiling:
+            return result(completed=False, stop_category="retry_or_budget_prohibited")
         cache_path = store.cache_root / asset["cache"]["relative_path"]
         metadata_path = store.cache_root / asset["cache"]["metadata_relative_path"]
         if cache_path.exists() or metadata_path.exists():
-            return _run_result(manifest, completed=False, stop_category="unverified_cache_collision")
+            return result(completed=False, stop_category="unverified_cache_collision")
         attempt = {
-            "attempt_number": 1,
-            "request_kind": "phase2b_live",
+            "attempt_number": next_attempt_number,
+            "request_kind": "phase2b_continuation" if continuation is not None else "phase2b_live",
             "started_at": store.clock(),
             "status": "started",
             "timeout_seconds": timeout_seconds,
         }
-        asset["attempt_count"] = 1
+        if continuation is not None:
+            attempt["continuation_authorization_id"] = continuation_id
+            manifest["transition_sequence"] += 1
+            asset["status"] = "attempting"
+            asset["transition_history"].append(
+                {
+                    "sequence": manifest["transition_sequence"],
+                    "at": store.clock(),
+                    "status": "attempting",
+                    "category": "continuation_attempt_authorized_and_started",
+                    "detail": continuation_id,
+                }
+            )
+        asset["attempt_count"] = next_attempt_number
         asset["attempt_history"].append(attempt)
         store.save(manifest)
         attempts_so_far += 1
@@ -1153,8 +1513,7 @@ def run_acquisition(
                         "audit": team_audit,
                     }
                     store.save(manifest)
-                    return _run_result(
-                        manifest,
+                    return result(
                         completed=False,
                         stop_category="team_reconciliation_or_target_failure",
                         team_audit=team_audit,
@@ -1170,7 +1529,7 @@ def run_acquisition(
             asset["last_error"] = {"category": exc.category, "detail": exc.detail}
             status = "quarantined" if exc.category == "schema_quarantine" else "failed"
             store.transition(manifest, asset, status, exc.category, exc.detail)
-            return _run_result(manifest, completed=False, stop_category=exc.category, stop_detail=exc.detail)
+            return result(completed=False, stop_category=exc.category, stop_detail=exc.detail)
         except Exception as exc:
             detail = f"{type(exc).__name__}: {exc}"
             attempt.update(
@@ -1178,15 +1537,13 @@ def run_acquisition(
             )
             asset["last_error"] = {"category": "unexpected_exception", "detail": detail}
             store.transition(manifest, asset, "failed", "unexpected_exception", detail)
-            return _run_result(
-                manifest, completed=False, stop_category="unexpected_exception", stop_detail=detail
-            )
+            return result(completed=False, stop_category="unexpected_exception", stop_detail=detail)
         if any(
             later["mode"] == "new_acquisition" and later["status"] == "planned"
             for later in manifest["pair_assets"][asset["ordinal"] :]
         ):
             sleep_fn(delay_seconds)
-    return _run_result(manifest, completed=True, stop_category=None)
+    return result(completed=True, stop_category=None)
 
 
 def _coverage_category(joined: Mapping[str, Any]) -> str:

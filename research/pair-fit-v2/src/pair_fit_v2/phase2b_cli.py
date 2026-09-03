@@ -7,7 +7,9 @@ import json
 from pathlib import Path
 
 from pair_fit_v2.phase2b_raw_season import (
+    activate_continuation,
     analyze_release,
+    continuation_preview,
     create_store,
     dry_run_plan,
     persist_initial_plan,
@@ -23,6 +25,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--verify-imports", action="store_true")
     result.add_argument("--dry-run", action="store_true")
     result.add_argument("--persist-initial-plan", action="store_true")
+    result.add_argument("--continuation-preview", action="store_true")
+    result.add_argument("--activate-continuation", action="store_true")
     result.add_argument("--live-acquisition", action="store_true")
     result.add_argument("--analyze", action="store_true")
     result.add_argument("--delay-seconds", type=float, default=1.0)
@@ -31,8 +35,17 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    if sum((args.dry_run, args.persist_initial_plan, args.live_acquisition)) > 1:
-        raise SystemExit("Choose preview, initial-plan persistence, or live acquisition")
+    exclusive = (
+        args.dry_run,
+        args.persist_initial_plan,
+        args.continuation_preview,
+        args.activate_continuation,
+        args.live_acquisition,
+    )
+    if sum(exclusive) > 1:
+        raise SystemExit(
+            "Choose initial preview/persistence, continuation preview/activation, or live acquisition"
+        )
     if args.dry_run and args.initialize:
         raise SystemExit("Read-only preview cannot be combined with initialization")
     store = create_store(args.cache_root)
@@ -52,6 +65,10 @@ def main(argv: list[str] | None = None) -> int:
         }
     if args.persist_initial_plan:
         output["initial_plan"] = persist_initial_plan(store)
+    if args.continuation_preview:
+        output["continuation_preview"] = continuation_preview(store)
+    if args.activate_continuation:
+        output["continuation_authorization"] = activate_continuation(store)
     if args.live_acquisition:
         output["acquisition"] = run_acquisition(
             store,

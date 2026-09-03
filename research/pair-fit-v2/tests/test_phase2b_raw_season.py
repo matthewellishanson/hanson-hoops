@@ -109,6 +109,31 @@ def _bypass_import_replay(monkeypatch, store=None):
         phase2b.persist_initial_plan(store)
 
 
+def _set_original_stopped_state(store):
+    manifest = store.load()
+    atlanta = manifest["pair_assets"][0]
+    assert atlanta["release_asset_id"] == phase2b.ATLANTA_BASE_RELEASE_ASSET_ID
+    atlanta["status"] = "failed"
+    atlanta["attempt_count"] = 1
+    atlanta["attempt_history"] = [
+        {
+            "attempt_number": 1,
+            "request_kind": "phase2b_live",
+            "started_at": "2026-09-02T03:57:59.898324Z",
+            "status": "failed",
+            "timeout_seconds": 30,
+            "error_category": "unexpected_exception",
+            "error_detail": "ValueError: Unauthorized Phase 2B pair request identity",
+        }
+    ]
+    atlanta["last_error"] = {
+        "category": "unexpected_exception",
+        "detail": "ValueError: Unauthorized Phase 2B pair request identity",
+    }
+    store.save(manifest)
+    return store.load()
+
+
 def test_deterministic_30_team_60_entry_order_and_exact_reuse_counts(expected):
     assets = expected["pair_assets"]
     assert len(assets) == 60
@@ -258,6 +283,7 @@ def test_first_failure_stops_without_retry_or_progression(store, monkeypatch):
         sleep_fn=lambda _: None,
     )
     assert result2["new_attempts"] == 1 and result2["stop_category"] == "existing_failed"
+    assert result2["effective_cumulative_ceiling"] == 50
 
 
 def test_successful_team_is_cached_replayed_then_next_team_can_continue(store, monkeypatch):
@@ -329,8 +355,8 @@ def test_direct_transport_builds_team_id_allowlist_without_tuple_mismatch(monkey
         def update(self, values):
             observed["headers"] = values
 
-        def get(self, url, *, params, timeout):
-            observed.update({"url": url, "params": params, "timeout": timeout, "trust_env": self.trust_env})
+        def get(self, url, *, params, timeout, allow_redirects):
+            observed.update({"url": url, "params": params, "timeout": timeout, "trust_env": self.trust_env, "allow_redirects": allow_redirects})
             return Response()
 
         def close(self):
@@ -350,6 +376,7 @@ def test_direct_transport_builds_team_id_allowlist_without_tuple_mismatch(monkey
     assert result.status_code == 200
     assert observed["params"]["TeamID"] == "1610612737"
     assert observed["timeout"] == 30 and observed["trust_env"] is False and observed["closed"] is True
+    assert observed["allow_redirects"] is False
 
 
 def test_default_acquisition_transport_uses_nondefault_store_cache_root(tmp_path, monkeypatch):
@@ -367,6 +394,8 @@ def test_default_acquisition_transport_uses_nondefault_store_cache_root(tmp_path
     )
     selected_store.create_or_load()
     phase2b.persist_initial_plan(selected_store)
+    _set_original_stopped_state(selected_store)
+    authorization = phase2b.activate_continuation(selected_store)
     observed = {"session_constructions": 0, "gets": 0}
 
     class Response:
@@ -383,11 +412,12 @@ def test_default_acquisition_transport_uses_nondefault_store_cache_root(tmp_path
         def update(self, _values):
             pass
 
-        def get(self, _url, *, params, timeout):
+        def get(self, _url, *, params, timeout, allow_redirects):
             observed["gets"] += 1
             observed["team_id"] = params["TeamID"]
             observed["timeout"] = timeout
             observed["trust_env"] = self.trust_env
+            observed["allow_redirects"] = allow_redirects
             return Response()
 
         def close(self):
@@ -401,13 +431,17 @@ def test_default_acquisition_transport_uses_nondefault_store_cache_root(tmp_path
         sleep_fn=lambda _seconds: pytest.fail("first failed response must stop the queue"),
     )
     assert result["stop_category"] == "non_200_http"
-    assert result["new_attempts"] == 1
+    assert result["new_attempts"] == 2
+    assert result["continuation_attempts"] == 1
+    assert result["effective_cumulative_ceiling"] == 51
+    assert result["continuation_authorization_id"] == authorization["authorization_id"]
     assert observed == {
         "session_constructions": 1,
         "gets": 1,
         "team_id": "1610612737",
         "timeout": 30,
         "trust_env": False,
+        "allow_redirects": False,
         "closed": True,
     }
     assert (selected_cache / "phase2b/release_manifest.json").exists()
@@ -427,6 +461,200 @@ def test_direct_transport_rejects_unauthorized_identity_before_session(monkeypat
             cache_root=REAL_CACHE,
             approved_identities={},
         )
+
+
+def test_continuation_preview_is_read_only_exact_and_ordered(store, monkeypatch):
+    _bypass_import_replay(monkeypatch, store)
+    _set_original_stopped_state(store)
+    protected = {
+        name: path.read_bytes()
+        for name, path in {
+            "manifest": store.path,
+            "ledger": store.ledger_path,
+            "dry_run": store.cache_root / "phase2b/dry_run.json",
+            "allowlist": store.cache_root / "phase2b/live_allowlist.json",
+        }.items()
+    }
+    preview = phase2b.continuation_preview(store)
+    expected_new = [
+        asset for asset in store.expected["pair_assets"] if asset["mode"] == "new_acquisition"
+    ]
+    assert preview["network_calls"] == 0 and preview["side_effects"] == []
+    assert preview["permitted_remaining_attempts"] == 50
+    assert preview["effective_cumulative_ceiling"] == 51
+    assert [item["release_asset_id"] for item in preview["permissions"]] == [
+        asset["release_asset_id"] for asset in expected_new
+    ]
+    assert preview["permissions"][0]["permitted_attempt_number"] == 2
+    assert all(item["permitted_attempt_number"] == 1 for item in preview["permissions"][1:])
+    assert not phase2b.continuation_authorization_path(store.cache_root).exists()
+    assert protected == {
+        name: path.read_bytes()
+        for name, path in {
+            "manifest": store.path,
+            "ledger": store.ledger_path,
+            "dry_run": store.cache_root / "phase2b/dry_run.json",
+            "allowlist": store.cache_root / "phase2b/live_allowlist.json",
+        }.items()
+    }
+
+
+def test_continuation_activation_snapshots_once_and_preserves_original_evidence(store, monkeypatch):
+    _bypass_import_replay(monkeypatch, store)
+    stopped = _set_original_stopped_state(store)
+    stopped_manifest = store.path.read_bytes()
+    stopped_ledger = store.ledger_path.read_bytes()
+    dry_run = (store.cache_root / "phase2b/dry_run.json").read_bytes()
+    allowlist = (store.cache_root / "phase2b/live_allowlist.json").read_bytes()
+    created = phase2b.activate_continuation(store)
+    paths = phase2b.continuation_snapshot_paths(store.cache_root)
+    assert created["activation_action"] == "created_once"
+    assert paths["manifest"].read_bytes() == stopped_manifest
+    assert paths["ledger"].read_bytes() == stopped_ledger
+    assert created["starting_code_commit"] == phase2b.CONTINUATION_STARTING_COMMIT
+    assert created["original_authorization"] == store.expected["authorization"]
+    active = store.load()
+    assert active["authorization"] == stopped["authorization"]
+    assert len(active["authorization_extensions"]) == 1
+    snapshot_bytes = {name: path.read_bytes() for name, path in paths.items()}
+    existing = phase2b.activate_continuation(store)
+    assert existing["activation_action"] == "validated_existing"
+    assert existing["side_effects"] == []
+    assert snapshot_bytes == {name: path.read_bytes() for name, path in paths.items()}
+    assert dry_run == (store.cache_root / "phase2b/dry_run.json").read_bytes()
+    assert allowlist == (store.cache_root / "phase2b/live_allowlist.json").read_bytes()
+
+
+def test_conflicting_stopped_snapshot_is_rejected_not_overwritten(store, monkeypatch):
+    _bypass_import_replay(monkeypatch, store)
+    _set_original_stopped_state(store)
+    phase2b.activate_continuation(store)
+    snapshot_path = phase2b.continuation_snapshot_paths(store.cache_root)["manifest"]
+    snapshot_path.write_bytes(snapshot_path.read_bytes() + b"\nconflict")
+    conflicting = snapshot_path.read_bytes()
+    with pytest.raises(ValueError, match="snapshot hash mismatch"):
+        phase2b.activate_continuation(store)
+    assert snapshot_path.read_bytes() == conflicting
+
+
+def test_continuation_completes_exact_permissions_once_and_survives_reload(store, monkeypatch):
+    _bypass_import_replay(monkeypatch, store)
+    original_attempt = deepcopy(_set_original_stopped_state(store)["pair_assets"][0]["attempt_history"][0])
+    authorization = phase2b.activate_continuation(store)
+    calls = []
+
+    def transport(identity, _timeout):
+        if not calls:
+            persisted = store.load()["pair_assets"][0]
+            assert persisted["status"] == "attempting"
+            assert persisted["attempt_count"] == 2
+            assert persisted["attempt_history"][1]["status"] == "started"
+        calls.append((identity["parameters"]["team_id"], identity["parameters"]["measure_type"]))
+        return TransportResult(200, json.dumps(_payload(identity, store.expected)).encode(), 0.01)
+
+    result = run_acquisition(
+        store,
+        live_acquisition=True,
+        transport=transport,
+        sleep_fn=lambda _seconds: None,
+    )
+    assert result["completed"] is True
+    assert result["new_attempts"] == 51
+    assert result["continuation_attempts"] == 50
+    assert result["actual_http_requests"] == 50
+    expected_calls = [
+        (asset["identity"]["parameters"]["team_id"], asset["identity"]["parameters"]["measure_type"])
+        for asset in store.expected["pair_assets"]
+        if asset["mode"] == "new_acquisition"
+    ]
+    assert calls == expected_calls
+    manifest = store.load()
+    assert manifest["pair_assets"][0]["attempt_history"][0] == original_attempt
+    assert manifest["pair_assets"][0]["attempt_count"] == 2
+    assert all(
+        asset["attempt_count"] == 1
+        for asset in manifest["pair_assets"]
+        if asset["mode"] == "new_acquisition"
+        and asset["release_asset_id"] != phase2b.ATLANTA_BASE_RELEASE_ASSET_ID
+    )
+    restarted = ReleaseStore(store.cache_root, store.expected, clock=lambda: "2026-09-01T01:00:00Z")
+    replayed = run_acquisition(
+        restarted,
+        live_acquisition=True,
+        transport=lambda *_: pytest.fail("verified permissions cannot be consumed twice"),
+        sleep_fn=lambda _seconds: None,
+    )
+    assert replayed["completed"] is True
+    assert replayed["continuation_authorization_id"] == authorization["authorization_id"]
+    assert replayed["new_attempts"] == 51 and replayed["remaining_budget"] == 0
+
+
+def test_continuation_failure_cannot_receive_atlanta_attempt_three(store, monkeypatch):
+    _bypass_import_replay(monkeypatch, store)
+    _set_original_stopped_state(store)
+    phase2b.activate_continuation(store)
+    first = run_acquisition(
+        store,
+        live_acquisition=True,
+        transport=lambda *_: (_ for _ in ()).throw(TransportError("timeout", "fixture timeout")),
+        sleep_fn=lambda _seconds: None,
+    )
+    assert first["new_attempts"] == 2 and first["stop_category"] == "timeout"
+    restarted = ReleaseStore(store.cache_root, store.expected, clock=lambda: "2026-09-01T01:00:00Z")
+    second = run_acquisition(
+        restarted,
+        live_acquisition=True,
+        transport=lambda *_: pytest.fail("Atlanta attempt three is prohibited"),
+        sleep_fn=lambda _seconds: None,
+    )
+    assert second["new_attempts"] == 2 and second["stop_category"] == "existing_failed"
+
+
+def test_tampered_continuation_stops_before_transport(store, monkeypatch):
+    _bypass_import_replay(monkeypatch, store)
+    _set_original_stopped_state(store)
+    phase2b.activate_continuation(store)
+    path = phase2b.continuation_authorization_path(store.cache_root)
+    authorization = json.loads(path.read_text())
+    authorization["limits"]["effective_cumulative_ceiling"] = 52
+    path.write_text(json.dumps(authorization), encoding="utf-8")
+    monkeypatch.setattr(
+        phase2b.requests,
+        "Session",
+        lambda: pytest.fail("tampered extension must stop before HTTP setup"),
+    )
+    with pytest.raises(ValueError, match="invalid or tampered"):
+        run_acquisition(store, live_acquisition=True, transport=None)
+
+
+def test_interrupted_continuation_attempt_stops_without_resend(store, monkeypatch):
+    _bypass_import_replay(monkeypatch, store)
+    _set_original_stopped_state(store)
+    authorization = phase2b.activate_continuation(store)
+    manifest = store.load()
+    atlanta = manifest["pair_assets"][0]
+    atlanta["status"] = "attempting"
+    atlanta["attempt_count"] = 2
+    atlanta["attempt_history"].append(
+        {
+            "attempt_number": 2,
+            "request_kind": "phase2b_continuation",
+            "started_at": "2026-09-01T00:02:00Z",
+            "status": "started",
+            "timeout_seconds": 30,
+            "continuation_authorization_id": authorization["authorization_id"],
+        }
+    )
+    store.save(manifest)
+    restarted = ReleaseStore(store.cache_root, store.expected, clock=lambda: "2026-09-01T01:00:00Z")
+    result = run_acquisition(
+        restarted,
+        live_acquisition=True,
+        transport=lambda *_: pytest.fail("uncertain interrupted attempt must not be resent"),
+        sleep_fn=lambda _seconds: None,
+    )
+    assert result["stop_category"] == "existing_attempting"
+    assert result["new_attempts"] == 2
 
 
 def test_persisted_analysis_failure_stops_after_restart_before_transport(store, monkeypatch):
@@ -545,10 +773,33 @@ def test_prior_player_boundary_rejects_duplicate_invalid_and_same_season(expecte
 def test_synthetic_completed_season_analysis_is_deterministic_and_offline(store, monkeypatch):
     monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: pytest.fail("network prohibited"))
     monkeypatch.setattr(phase2b.requests, "Session", lambda: pytest.fail("network prohibited"))
+    _bypass_import_replay(monkeypatch, store)
+    _set_original_stopped_state(store)
+    authorization = phase2b.activate_continuation(store)
     manifest = store.load()
     for asset in manifest["pair_assets"]:
         if asset["mode"] == "new_acquisition":
             asset["status"] = "verified"
+            if asset["release_asset_id"] == phase2b.ATLANTA_BASE_RELEASE_ASSET_ID:
+                asset["attempt_history"].append(
+                    {
+                        "attempt_number": 2,
+                        "request_kind": "phase2b_continuation",
+                        "status": "verified",
+                        "continuation_authorization_id": authorization["authorization_id"],
+                    }
+                )
+                asset["attempt_count"] = 2
+            else:
+                asset["attempt_history"] = [
+                    {
+                        "attempt_number": 1,
+                        "request_kind": "phase2b_continuation",
+                        "status": "verified",
+                        "continuation_authorization_id": authorization["authorization_id"],
+                    }
+                ]
+                asset["attempt_count"] = 1
     store.save(manifest)
     monkeypatch.setattr(
         phase2b,
@@ -617,6 +868,7 @@ def test_synthetic_completed_season_analysis_is_deterministic_and_offline(store,
     first = phase2b.analyze_release(store)
     second = phase2b.analyze_release(store)
     assert first["request_set"]["pair_entries"] == 60
+    assert first["request_set"]["new_live_attempts"] == 51
     assert first["combined"]["matched_observation_keys"] == 30
     assert first["canary_reproduction"]["exact"] is True
     assert first["primary_classification"].startswith("2023-24 raw release supported")
