@@ -1,8 +1,7 @@
-"""Bounded Phase 2C acquisition and audit for 2022-23 pair outcomes.
+"""Configured historical raw-season acquisition and audit state machine.
 
-The module deliberately owns only Phase 2C state.  It reuses the reviewed
-schema, hashing, pair parsing, and coverage helpers from earlier research
-phases while enforcing a new season-scoped plan and retry policy.
+Phase 2C remains the backward-compatible default specification. Later phases
+must provide an explicit immutable specification rather than copy this engine.
 """
 
 from __future__ import annotations
@@ -99,6 +98,98 @@ PHASE2B_HASHES = {
     "ledger": "d298f15316dec37cfb3efe6fb9f1451cb3052ed7a1f0b603ce0a4d6057f62dcb",
     "analysis": "00f4324311368184d1c184be89d23b866551678b3715c262e76b36f459e24b82",
 }
+PHASE2C_HASHES = {
+    "manifest": "cce7150e0aa0a4c0278c34d8f20bed0b534bc02ef65c61031c65b03fd786ed0d",
+    "ledger": "eb4d3fcbf9f0e00104c903ec6f2f8f80c9fb716724d7a469a66d81a0e45eb58e",
+    "plan": "34e83472985fa0cbc0ad97cbbad84807823913c42bb4229ff58338af02302bb1",
+    "allowlist": "5dc463bca66df58cec746451f38567d72ec0ec40aca71bc80f3ac534c0bdd572",
+    "analysis": "a644c47dd6940ac3ab0ccc438ed9a93c852d325fb11484679d1e341d66708ad0",
+}
+
+
+@dataclass(frozen=True)
+class HistoricalSeasonSpec:
+    """Immutable scope for one approved historical raw-season release."""
+
+    release_key: str
+    phase_label: str
+    target_season: str
+    prior_feature_season: str
+    manifest_version: str
+    ledger_version: str
+    analysis_version: str
+    asset_namespace: str
+    manifest_namespace: str
+    plan_version: str
+    allowlist_version: str
+    provenance_format: str
+    request_kind: str
+    prerequisite_key: str
+    supported_classification: str
+    unresolved_classification: str
+    incomplete_classification: str
+    canary_team_ids: tuple[str, ...] = CANARY_TEAM_IDS
+    maximum_first_attempts: int = MAX_FIRST_ATTEMPTS
+    maximum_retry_attempts: int = MAX_RETRIES
+    maximum_total_attempts: int = MAX_ATTEMPTS
+    canary_asset_count: int = 12
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.request_kind, str)
+            or not self.request_kind.endswith("_live")
+            or not self.request_kind[0].isalpha()
+            or any(
+                not (character.islower() or character.isdigit() or character == "_")
+                for character in self.request_kind
+            )
+        ):
+            raise ValueError(
+                "Historical release request_kind must be an explicit lowercase "
+                "identifier ending in '_live'"
+            )
+
+        def season_start(label: str) -> int:
+            parts = label.split("-")
+            if len(parts) != 2 or len(parts[0]) != 4 or len(parts[1]) != 2:
+                raise ValueError(f"Invalid NBA season label: {label!r}")
+            if not parts[0].isdigit() or not parts[1].isdigit():
+                raise ValueError(f"Invalid NBA season label: {label!r}")
+            start = int(parts[0])
+            if int(parts[1]) != (start + 1) % 100:
+                raise ValueError(f"Invalid NBA season span: {label!r}")
+            return start
+
+        if season_start(self.prior_feature_season) + 1 != season_start(self.target_season):
+            raise ValueError("Prior-player season must be the immediately preceding season")
+        if self.maximum_first_attempts != 62 or self.maximum_total_attempts != 68:
+            raise ValueError("Historical release specification must preserve the 62/68 budget")
+        if self.maximum_retry_attempts != 6 or self.canary_asset_count != 12:
+            raise ValueError("Historical release specification changed retry/canary limits")
+
+
+PHASE2C_SPEC = HistoricalSeasonSpec(
+    release_key="phase2c",
+    phase_label="Phase 2C",
+    target_season=TARGET_SEASON,
+    prior_feature_season=PRIOR_FEATURE_SEASON,
+    manifest_version=MANIFEST_VERSION,
+    ledger_version=LEDGER_VERSION,
+    analysis_version=ANALYSIS_VERSION,
+    asset_namespace="phase2c-raw-asset",
+    manifest_namespace="phase2c-manifest",
+    plan_version="phase2c.initial-plan.v1",
+    allowlist_version="phase2c.live-allowlist.v1",
+    provenance_format="phase2c-live-v1",
+    request_kind="phase2c_live",
+    prerequisite_key="phase2b_prerequisite",
+    supported_classification=(
+        "2022-23 raw release supported with population caveats; "
+        "next historical phase ready for separate authorization"
+    ),
+    unresolved_classification="2022-23 raw request set complete; release audit unresolved",
+    incomplete_classification="2022-23 raw acquisition incomplete; next historical phase blocked",
+)
 
 
 def _sha256_file(path: Path) -> str:
@@ -106,9 +197,14 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def validate_season_scope(target: str, prior: str) -> None:
-    if (target, prior) != (TARGET_SEASON, PRIOR_FEATURE_SEASON):
-        raise ValueError("Phase 2C authorizes only target 2022-23 and prior 2021-22")
+def validate_season_scope(
+    target: str, prior: str, spec: HistoricalSeasonSpec = PHASE2C_SPEC
+) -> None:
+    if (target, prior) != (spec.target_season, spec.prior_feature_season):
+        raise ValueError(
+            f"{spec.phase_label} authorizes only target {spec.target_season} "
+            f"and prior {spec.prior_feature_season}"
+        )
     if int(prior[:4]) + 1 != int(target[:4]):
         raise ValueError("Prior-player season must be the immediately preceding season")
 
@@ -135,58 +231,101 @@ def _phase2b_prerequisite(cache_root: Path) -> dict[str, Any]:
     return {"hashes": observed, "classification": analysis["primary_classification"]}
 
 
-def _team_order(cache_root: Path) -> tuple[tuple[str, str], ...]:
+def _phase2c_prerequisite(cache_root: Path) -> dict[str, Any]:
+    store = create_store(cache_root, spec=PHASE2C_SPEC)
+    analysis = analyze_release(store)
+    observed = {
+        "manifest": _sha256_file(store.path),
+        "ledger": _sha256_file(store.ledger_path),
+        "plan": _sha256_file(plan_path(cache_root, PHASE2C_SPEC)),
+        "allowlist": _sha256_file(allowlist_path(cache_root, PHASE2C_SPEC)),
+        "analysis": analysis["deterministic_analysis_sha256"],
+    }
+    if observed != PHASE2C_HASHES:
+        raise ValueError(f"Immutable Phase 2C prerequisite mismatch: {observed}")
+    if (
+        analysis["combined"]["matched_observation_keys"] != 4805
+        or analysis["canary"]["certification"]["status"] != "certified"
+        or analysis["primary_classification"] != PHASE2C_SPEC.supported_classification
+    ):
+        raise ValueError("Immutable Phase 2C conclusion mismatch")
+    return {"hashes": observed, "classification": analysis["primary_classification"]}
+
+
+def _team_order(
+    cache_root: Path, spec: HistoricalSeasonSpec = PHASE2C_SPEC
+) -> tuple[tuple[str, str], ...]:
     directory = load_team_inventory(cache_root)
     indexed = {team_id: name for team_id, name in directory}
-    canary = tuple((team_id, indexed[team_id]) for team_id in CANARY_TEAM_IDS)
-    remaining = tuple(item for item in directory if item[0] not in CANARY_TEAM_IDS)
+    canary = tuple((team_id, indexed[team_id]) for team_id in spec.canary_team_ids)
+    remaining = tuple(item for item in directory if item[0] not in spec.canary_team_ids)
     if len(canary) != 5 or len(remaining) != 25:
-        raise ValueError("Phase 2C requires five canary and 25 remaining teams")
+        raise ValueError(f"{spec.phase_label} requires five canary and 25 remaining teams")
     return canary + remaining
 
 
-def _identity(endpoint: str, parameters: Mapping[str, Any], team_ids: set[str]) -> dict[str, Any]:
+def _identity(
+    endpoint: str,
+    parameters: Mapping[str, Any],
+    team_ids: set[str],
+    spec: HistoricalSeasonSpec = PHASE2C_SPEC,
+) -> dict[str, Any]:
     value = {
         "endpoint": endpoint,
-        "target_season": TARGET_SEASON,
-        "prior_feature_season": PRIOR_FEATURE_SEASON,
+        "target_season": spec.target_season,
+        "prior_feature_season": spec.prior_feature_season,
         "parameters": dict(parameters),
     }
-    validate_identity(value, team_ids)
+    validate_identity(value, team_ids, spec)
     return value
 
 
-def player_identity(per_mode: str, team_ids: set[str]) -> dict[str, Any]:
+def player_identity(
+    per_mode: str, team_ids: set[str], spec: HistoricalSeasonSpec = PHASE2C_SPEC
+) -> dict[str, Any]:
     return _identity(PLAYER_ENDPOINT, {
         **PLAYER_EXTRA_PARAMETERS,
         "league_id": LEAGUE_ID,
-        "season": PRIOR_FEATURE_SEASON,
+        "season": spec.prior_feature_season,
         "season_type": "regular-season",
         "measure_type": "Base",
         "per_mode": per_mode,
-    }, team_ids)
+    }, team_ids, spec)
 
 
-def pair_identity(team_id: str, measure: str, team_ids: set[str]) -> dict[str, Any]:
+def pair_identity(
+    team_id: str,
+    measure: str,
+    team_ids: set[str],
+    spec: HistoricalSeasonSpec = PHASE2C_SPEC,
+) -> dict[str, Any]:
     return _identity(PAIR_ENDPOINT, {
         **TEAM_DASH_LINEUPS_EXTRA_PARAMETERS,
         "league_id": LEAGUE_ID,
-        "season": TARGET_SEASON,
+        "season": spec.target_season,
         "season_type": "regular-season",
         "team_id": str(team_id),
         "group_quantity": GROUP_QUANTITY,
         "measure_type": measure,
-    }, team_ids)
+    }, team_ids, spec)
 
 
-def validate_identity(identity: Mapping[str, Any], team_ids: set[str]) -> None:
-    validate_season_scope(str(identity.get("target_season")), str(identity.get("prior_feature_season")))
+def validate_identity(
+    identity: Mapping[str, Any],
+    team_ids: set[str],
+    spec: HistoricalSeasonSpec = PHASE2C_SPEC,
+) -> None:
+    validate_season_scope(
+        str(identity.get("target_season")),
+        str(identity.get("prior_feature_season")),
+        spec,
+    )
     params = identity.get("parameters")
     endpoint = identity.get("endpoint")
     if endpoint not in {PAIR_ENDPOINT, PLAYER_ENDPOINT} or not isinstance(params, Mapping):
-        raise ValueError("Unauthorized Phase 2C endpoint")
+        raise ValueError(f"Unauthorized {spec.phase_label} endpoint")
     if params.get("league_id") != LEAGUE_ID or params.get("season_type") != "regular-season":
-        raise ValueError("Unauthorized Phase 2C league or season type")
+        raise ValueError(f"Unauthorized {spec.phase_label} league or season type")
     if params.get("DateFrom") not in (None, "") or params.get("DateTo") not in (None, ""):
         raise ValueError("Date windows are prohibited")
     if str(params.get("LastNGames")) != "0":
@@ -194,26 +333,26 @@ def validate_identity(identity: Mapping[str, Any], team_ids: set[str]) -> None:
     if endpoint == PAIR_ENDPOINT:
         team_id = strict_player_id(params.get("team_id"), field="team_id")
         if (
-            params.get("season") != TARGET_SEASON
+            params.get("season") != spec.target_season
             or params.get("measure_type") not in MEASURES
             or params.get("group_quantity") != GROUP_QUANTITY
             or team_id not in team_ids
         ):
-            raise ValueError("Unauthorized Phase 2C pair identity")
+            raise ValueError(f"Unauthorized {spec.phase_label} pair identity")
     elif (
-        params.get("season") != PRIOR_FEATURE_SEASON
+        params.get("season") != spec.prior_feature_season
         or params.get("measure_type") != "Base"
         or params.get("per_mode") not in PLAYER_PER_MODES
     ):
-        raise ValueError("Unauthorized Phase 2C player identity")
-    serialized = json.dumps(identity, sort_keys=True)
-    for forbidden in ("2023-24", "2024-25", "2025-26"):
-        if forbidden in serialized:
-            raise ValueError("A non-Phase-2C season cannot satisfy the request identity")
+        raise ValueError(f"Unauthorized {spec.phase_label} player identity")
 
 
-def request_parameters(identity: Mapping[str, Any], team_ids: set[str]) -> dict[str, Any]:
-    validate_identity(identity, team_ids)
+def request_parameters(
+    identity: Mapping[str, Any],
+    team_ids: set[str],
+    spec: HistoricalSeasonSpec = PHASE2C_SPEC,
+) -> dict[str, Any]:
+    validate_identity(identity, team_ids, spec)
     params = dict(identity["parameters"])
     params.pop("season_type")
     core = {
@@ -229,45 +368,55 @@ def request_parameters(identity: Mapping[str, Any], team_ids: set[str]) -> dict[
     return {**params, **core}
 
 
-def asset_id(identity: Mapping[str, Any]) -> str:
-    return stable_contract_id("phase2c-raw-asset", identity)
+def asset_id(
+    identity: Mapping[str, Any], spec: HistoricalSeasonSpec = PHASE2C_SPEC
+) -> str:
+    return stable_contract_id(spec.asset_namespace, identity)
 
 
 def _safe_id(value: str) -> str:
     return value.replace(":", "_")
 
 
-def manifest_path(cache_root: Path) -> Path:
-    return cache_root / "phase2c/manifest.json"
+def manifest_path(
+    cache_root: Path, spec: HistoricalSeasonSpec = PHASE2C_SPEC
+) -> Path:
+    return cache_root / spec.release_key / "manifest.json"
 
 
-def ledger_path(cache_root: Path) -> Path:
-    return cache_root / "phase2c/attempt_ledger.json"
+def ledger_path(cache_root: Path, spec: HistoricalSeasonSpec = PHASE2C_SPEC) -> Path:
+    return cache_root / spec.release_key / "attempt_ledger.json"
 
 
-def plan_path(cache_root: Path) -> Path:
-    return cache_root / "phase2c/initial_plan.json"
+def plan_path(cache_root: Path, spec: HistoricalSeasonSpec = PHASE2C_SPEC) -> Path:
+    return cache_root / spec.release_key / "initial_plan.json"
 
 
-def allowlist_path(cache_root: Path) -> Path:
-    return cache_root / "phase2c/live_allowlist.json"
+def allowlist_path(cache_root: Path, spec: HistoricalSeasonSpec = PHASE2C_SPEC) -> Path:
+    return cache_root / spec.release_key / "live_allowlist.json"
 
 
-def build_expected_manifest(cache_root: Path) -> dict[str, Any]:
-    prerequisite = _phase2b_prerequisite(cache_root)
-    teams = _team_order(cache_root)
+def build_expected_manifest(
+    cache_root: Path, spec: HistoricalSeasonSpec = PHASE2C_SPEC
+) -> dict[str, Any]:
+    prerequisite = (
+        _phase2b_prerequisite(cache_root)
+        if spec.prerequisite_key == "phase2b_prerequisite"
+        else _phase2c_prerequisite(cache_root)
+    )
+    teams = _team_order(cache_root, spec)
     team_ids = {team_id for team_id, _ in teams}
     phase2b = read_json(cache_root / "phase2b/release_manifest.json")
     phase2a = read_json(cache_root / "phase2a/manifest.json")
     player_schema = phase2a.get("active_player_schema_contract")
     if phase2a.get("active_player_schema_version") != "phase2a.player-base.v2" or not player_schema:
         raise ValueError("Reviewed 69-column player schema is not active")
-    identities = [player_identity(mode, team_ids) for mode in PLAYER_PER_MODES]
+    identities = [player_identity(mode, team_ids, spec) for mode in PLAYER_PER_MODES]
     for team_id, _name in teams:
-        identities.extend(pair_identity(team_id, measure, team_ids) for measure in MEASURES)
+        identities.extend(pair_identity(team_id, measure, team_ids, spec) for measure in MEASURES)
     assets = []
     for ordinal, identity in enumerate(identities, 1):
-        aid = asset_id(identity)
+        aid = asset_id(identity, spec)
         stem = _safe_id(aid)
         team_id = identity["parameters"].get("team_id")
         assets.append({
@@ -281,8 +430,8 @@ def build_expected_manifest(cache_root: Path) -> dict[str, Any]:
             "transition_history": [],
             "last_error": None,
             "cache": {
-                "relative_path": f"phase2c/raw/{stem}.json",
-                "metadata_relative_path": f"phase2c/raw/{stem}.metadata.json",
+                "relative_path": f"{spec.release_key}/raw/{stem}.json",
+                "metadata_relative_path": f"{spec.release_key}/raw/{stem}.metadata.json",
                 "cache_file_bytes": None,
                 "raw_body_hash": None,
                 "canonical_json_hash": None,
@@ -293,20 +442,20 @@ def build_expected_manifest(cache_root: Path) -> dict[str, Any]:
             "source_event": None,
         })
     logical = {
-        "target_season": TARGET_SEASON,
-        "prior_feature_season": PRIOR_FEATURE_SEASON,
+        "target_season": spec.target_season,
+        "prior_feature_season": spec.prior_feature_season,
         "season_type": "regular-season",
         "league_id": LEAGUE_ID,
         "assets": identities,
     }
     return {
-        "manifest_version": MANIFEST_VERSION,
-        "manifest_id": stable_contract_id("phase2c-manifest", logical),
+        "manifest_version": spec.manifest_version,
+        "manifest_id": stable_contract_id(spec.manifest_namespace, logical),
         "logical_identity": logical,
         "authorization": {
-            "maximum_first_attempts": MAX_FIRST_ATTEMPTS,
-            "maximum_retry_attempts": MAX_RETRIES,
-            "maximum_total_attempts": MAX_ATTEMPTS,
+            "maximum_first_attempts": spec.maximum_first_attempts,
+            "maximum_retry_attempts": spec.maximum_retry_attempts,
+            "maximum_total_attempts": spec.maximum_total_attempts,
             "maximum_attempts_per_asset": 2,
         },
         "team_directory": {team_id: {"team_name": name} for team_id, name in teams},
@@ -315,7 +464,7 @@ def build_expected_manifest(cache_root: Path) -> dict[str, Any]:
         "approved_player_schema_contract": deepcopy(player_schema),
         "approved_player_schema_version": phase2a["active_player_schema_version"],
         "approved_player_schema_contract_id": stable_contract_id("schema-contract", player_schema),
-        "phase2b_prerequisite": prerequisite,
+        spec.prerequisite_key: prerequisite,
         "transition_sequence": 0,
         "created_at": None,
         "updated_at": None,
@@ -327,51 +476,68 @@ def build_expected_manifest(cache_root: Path) -> dict[str, Any]:
     }
 
 
-def validate_manifest(manifest: Mapping[str, Any], expected: Mapping[str, Any]) -> None:
+def validate_manifest(
+    manifest: Mapping[str, Any],
+    expected: Mapping[str, Any],
+    spec: HistoricalSeasonSpec = PHASE2C_SPEC,
+) -> None:
     immutable = (
         "manifest_version", "manifest_id", "logical_identity", "authorization", "team_directory",
         "approved_pair_schema_contract", "approved_pair_schema_contract_id",
         "approved_player_schema_contract", "approved_player_schema_version",
-        "approved_player_schema_contract_id", "phase2b_prerequisite",
+        "approved_player_schema_contract_id", spec.prerequisite_key,
     )
     for key in immutable:
         if manifest.get(key) != expected.get(key):
-            raise ValueError(f"Phase 2C manifest mismatch: {key}")
+            raise ValueError(f"{spec.phase_label} manifest mismatch: {key}")
     assets = manifest.get("assets")
     if not isinstance(assets, list) or len(assets) != 62:
-        raise ValueError("Phase 2C manifest must contain exactly 62 assets")
+        raise ValueError(f"{spec.phase_label} manifest must contain exactly 62 assets")
     if [item.get("identity") for item in assets] != [item["identity"] for item in expected["assets"]]:
-        raise ValueError("Phase 2C request identity/order changed")
+        raise ValueError(f"{spec.phase_label} request identity/order changed")
     team_ids = set(manifest["team_directory"])
     ids: set[str] = set()
     paths: set[str] = set()
     attempts = retries = firsts = 0
     for item in assets:
-        validate_identity(item["identity"], team_ids)
-        if item.get("asset_id") != asset_id(item["identity"]):
-            raise ValueError("Phase 2C asset ID mismatch")
+        validate_identity(item["identity"], team_ids, spec)
+        if item.get("asset_id") != asset_id(item["identity"], spec):
+            raise ValueError(f"{spec.phase_label} asset ID mismatch")
         path = str(item.get("cache", {}).get("relative_path"))
-        if item["asset_id"] in ids or path in paths or not path.startswith("phase2c/raw/"):
-            raise ValueError("Phase 2C asset/cache collision")
+        if item["asset_id"] in ids or path in paths or not path.startswith(f"{spec.release_key}/raw/"):
+            raise ValueError(f"{spec.phase_label} asset/cache collision")
         ids.add(item["asset_id"]); paths.add(path)
         history = item.get("attempt_history")
         if not isinstance(history, list) or item.get("attempt_count") != len(history) or len(history) > 2:
-            raise ValueError("Phase 2C attempt history violates per-asset limit")
+            raise ValueError(f"{spec.phase_label} attempt history violates per-asset limit")
         if [event.get("attempt_number") for event in history] != list(range(1, len(history) + 1)):
-            raise ValueError("Phase 2C attempt numbering is not contiguous")
+            raise ValueError(f"{spec.phase_label} attempt numbering is not contiguous")
         attempts += len(history)
         firsts += bool(history)
         retries += max(0, len(history) - 1)
-    if attempts > MAX_ATTEMPTS or firsts > MAX_FIRST_ATTEMPTS or retries > MAX_RETRIES:
-        raise ValueError("Phase 2C cumulative attempt budget exceeded")
+    authorization = expected["authorization"]
+    if (
+        attempts > authorization["maximum_total_attempts"]
+        or firsts > authorization["maximum_first_attempts"]
+        or retries > authorization["maximum_retry_attempts"]
+    ):
+        raise ValueError(f"{spec.phase_label} cumulative attempt budget exceeded")
 
 
 class Phase2CStore:
-    def __init__(self, cache_root: Path, expected: Mapping[str, Any], *, clock: Callable[[], str]):
+    def __init__(
+        self,
+        cache_root: Path,
+        expected: Mapping[str, Any],
+        *,
+        clock: Callable[[], str],
+        spec: HistoricalSeasonSpec = PHASE2C_SPEC,
+    ):
         self.cache_root = Path(cache_root)
         self.expected = deepcopy(expected)
-        self.path = manifest_path(self.cache_root)
-        self.ledger_path = ledger_path(self.cache_root)
+        self.spec = spec
+        self.path = manifest_path(self.cache_root, spec)
+        self.ledger_path = ledger_path(self.cache_root, spec)
         self.clock = clock
 
     def create_or_load(self) -> dict[str, Any]:
@@ -385,16 +551,16 @@ class Phase2CStore:
 
     def load(self) -> dict[str, Any]:
         value = read_json(self.path)
-        validate_manifest(value, self.expected)
+        validate_manifest(value, self.expected, self.spec)
         self._validate_ledger(value)
         return value
 
     def save(self, manifest: dict[str, Any]) -> None:
-        validate_manifest(manifest, self.expected)
+        validate_manifest(manifest, self.expected, self.spec)
         manifest["updated_at"] = self.clock()
         atomic_write_json(self.path, manifest)
         atomic_write_json(self.ledger_path, {
-            "ledger_version": LEDGER_VERSION,
+            "ledger_version": self.spec.ledger_version,
             "manifest_id": manifest["manifest_id"],
             "authorization": manifest["authorization"],
             "player_source_gate": deepcopy(manifest.get("player_source_gate")),
@@ -410,7 +576,7 @@ class Phase2CStore:
     def _validate_ledger(self, manifest: Mapping[str, Any]) -> None:
         ledger = read_json(self.ledger_path)
         expected = {
-            "ledger_version": LEDGER_VERSION,
+            "ledger_version": self.spec.ledger_version,
             "manifest_id": manifest["manifest_id"],
             "authorization": manifest["authorization"],
             "player_source_gate": manifest.get("player_source_gate"),
@@ -423,7 +589,7 @@ class Phase2CStore:
             } for item in manifest["assets"]],
         }
         if ledger != expected:
-            raise ValueError("Phase 2C attempt ledger does not match manifest state")
+            raise ValueError(f"{self.spec.phase_label} attempt ledger does not match manifest state")
 
     def transition(self, manifest: dict[str, Any], item: dict[str, Any], status: str, category: str, detail: str | None = None) -> None:
         manifest["transition_sequence"] += 1
@@ -435,20 +601,30 @@ class Phase2CStore:
         self.save(manifest)
 
 
-def create_store(cache_root: Path, *, clock: Callable[[], str] | None = None) -> Phase2CStore:
-    return Phase2CStore(cache_root, build_expected_manifest(cache_root), clock=clock or utc_now)
+def create_store(
+    cache_root: Path,
+    *,
+    clock: Callable[[], str] | None = None,
+    spec: HistoricalSeasonSpec = PHASE2C_SPEC,
+) -> Phase2CStore:
+    return Phase2CStore(
+        cache_root,
+        build_expected_manifest(cache_root, spec),
+        clock=clock or utc_now,
+        spec=spec,
+    )
 
 
 def _plan_document(store: Phase2CStore) -> dict[str, Any]:
     manifest = store.expected
     team_ids = set(manifest["team_directory"])
     return {
-        "plan_version": "phase2c.initial-plan.v1", "manifest_id": manifest["manifest_id"],
+        "plan_version": store.spec.plan_version, "manifest_id": manifest["manifest_id"],
         "network_calls": 0, "read_only_preview": True,
         "assets": [{
             "ordinal": item["ordinal"], "asset_id": item["asset_id"],
             "identity": item["identity"], "cache_path": item["cache"]["relative_path"],
-            "request_parameters": request_parameters(item["identity"], team_ids),
+            "request_parameters": request_parameters(item["identity"], team_ids, store.spec),
         } for item in manifest["assets"]],
     }
 
@@ -463,30 +639,32 @@ def persist_initial_plan(store: Phase2CStore) -> dict[str, Any]:
     manifest = store.create_or_load()
     plan = _plan_document(store)
     allowlist = {
-        "allowlist_version": "phase2c.live-allowlist.v1",
+        "allowlist_version": store.spec.allowlist_version,
         "manifest_id": manifest["manifest_id"],
         "assets": [{"ordinal": item["ordinal"], "asset_id": item["asset_id"], "identity": item["identity"]}
                    for item in manifest["assets"]],
     }
-    for path, value in ((plan_path(store.cache_root), plan), (allowlist_path(store.cache_root), allowlist)):
+    for path, value in ((plan_path(store.cache_root, store.spec), plan),
+                        (allowlist_path(store.cache_root, store.spec), allowlist)):
         body = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
         if path.exists():
             if path.read_bytes() != body:
                 raise ValueError(f"Create-once evidence conflicts: {path.name}")
         else:
             atomic_write_bytes_new(path, body)
-    return {"plan_sha256": _sha256_file(plan_path(store.cache_root)),
-            "allowlist_sha256": _sha256_file(allowlist_path(store.cache_root)), "network_calls": 0}
+    return {"plan_sha256": _sha256_file(plan_path(store.cache_root, store.spec)),
+            "allowlist_sha256": _sha256_file(allowlist_path(store.cache_root, store.spec)), "network_calls": 0}
 
 
 def _approved_identities(store: Phase2CStore) -> dict[str, Mapping[str, Any]]:
-    plan = read_json(plan_path(store.cache_root)); allowlist = read_json(allowlist_path(store.cache_root))
+    plan = read_json(plan_path(store.cache_root, store.spec))
+    allowlist = read_json(allowlist_path(store.cache_root, store.spec))
     if plan != _plan_document(store) or allowlist.get("manifest_id") != store.expected["manifest_id"]:
-        raise ValueError("Phase 2C persisted plan/allowlist mismatch")
+        raise ValueError(f"{store.spec.phase_label} persisted plan/allowlist mismatch")
     expected = [{"ordinal": item["ordinal"], "asset_id": item["asset_id"], "identity": item["identity"]}
                 for item in store.expected["assets"]]
     if allowlist.get("assets") != expected:
-        raise ValueError("Phase 2C allowlist changed")
+        raise ValueError(f"{store.spec.phase_label} allowlist changed")
     return {item["asset_id"]: item for item in expected}
 
 
@@ -504,13 +682,14 @@ class TransportError(RuntimeError):
 
 
 def direct_transport(identity: Mapping[str, Any], timeout_seconds: int = TIMEOUT_SECONDS, *,
-                     cache_root: Path, approved_identities: Mapping[str, Mapping[str, Any]]) -> TransportResult:
-    team_ids = {team_id for team_id, _ in _team_order(cache_root)}
-    validate_identity(identity, team_ids)
-    aid = asset_id(identity)
+                     cache_root: Path, approved_identities: Mapping[str, Mapping[str, Any]],
+                     spec: HistoricalSeasonSpec = PHASE2C_SPEC) -> TransportResult:
+    team_ids = {team_id for team_id, _ in _team_order(cache_root, spec)}
+    validate_identity(identity, team_ids, spec)
+    aid = asset_id(identity, spec)
     approved = approved_identities.get(aid)
     if not approved or approved.get("identity") != identity:
-        raise ValueError("Transport identity is absent from the Phase 2C allowlist")
+        raise ValueError(f"Transport identity is absent from the {spec.phase_label} allowlist")
     session = requests.Session()
     session.trust_env = False
     session.headers.update(RESEARCH_HEADERS)
@@ -519,7 +698,7 @@ def direct_transport(identity: Mapping[str, Any], timeout_seconds: int = TIMEOUT
     try:
         response = session.get(
             PAIR_URL if identity["endpoint"] == PAIR_ENDPOINT else PLAYER_URL,
-            params=request_parameters(identity, team_ids), timeout=timeout_seconds,
+            params=request_parameters(identity, team_ids, spec), timeout=timeout_seconds,
             allow_redirects=False,
         )
         return TransportResult(response.status_code, response.content, time.perf_counter() - started,
@@ -568,9 +747,14 @@ def strict_player_source_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "player_ids": sorted(counts, key=int)}
 
 
-def validate_response(payload: Mapping[str, Any], identity: Mapping[str, Any], manifest: Mapping[str, Any]) -> dict[str, Any]:
+def validate_response(
+    payload: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    spec: HistoricalSeasonSpec = PHASE2C_SPEC,
+) -> dict[str, Any]:
     team_ids = set(manifest["team_directory"])
-    validate_identity(identity, team_ids); _validate_returned_identity(payload, identity)
+    validate_identity(identity, team_ids, spec); _validate_returned_identity(payload, identity)
     if identity["endpoint"] == PAIR_ENDPOINT:
         validation = validate_payload_structure(payload)
         if set(validation["row_counts"]) != {"Overall", "Lineups"} or validation["row_counts"]["Overall"] != 1:
@@ -600,7 +784,7 @@ def validate_response(payload: Mapping[str, Any], identity: Mapping[str, Any], m
                        else schema_drift_report(expected[name], actual[name]))
     rejected = {name: value["classification"] for name, value in drift.items() if not value["accepted"]}
     if identity["endpoint"] == PAIR_ENDPOINT and not rejected:
-        rows = _pair_rows(payload, TARGET_SEASON, identity["parameters"]["team_id"])
+        rows = _pair_rows(payload, spec.target_season, identity["parameters"]["team_id"])
         audit = strict_pair_identifier_audit(rows)
         if audit["invalid_rows"] or audit["duplicate_canonical_pairs"]:
             raise ValueError("Pair response contains invalid or duplicate canonical IDs")
@@ -611,8 +795,8 @@ def validate_response(payload: Mapping[str, Any], identity: Mapping[str, Any], m
 
 
 def verify_asset(item: Mapping[str, Any], store: Phase2CStore, manifest: Mapping[str, Any]) -> dict[str, Any]:
-    validate_identity(item["identity"], set(manifest["team_directory"]))
-    if item["asset_id"] != asset_id(item["identity"]):
+    validate_identity(item["identity"], set(manifest["team_directory"]), store.spec)
+    if item["asset_id"] != asset_id(item["identity"], store.spec):
         raise ValueError("Asset identity hash mismatch")
     cache = item["cache"]; path = store.cache_root / cache["relative_path"]
     body = path.read_bytes()
@@ -621,7 +805,7 @@ def verify_asset(item: Mapping[str, Any], store: Phase2CStore, manifest: Mapping
     payload = json.loads(body.decode("utf-8"))
     if canonical_json_hash(payload) != cache["canonical_json_hash"]:
         raise ValueError("Canonical JSON hash mismatch")
-    validation = validate_response(payload, item["identity"], manifest)
+    validation = validate_response(payload, item["identity"], manifest, store.spec)
     if not validation["accepted"]:
         raise ValueError(f"Schema mismatch: {validation['rejected']}")
     metadata = read_json(store.cache_root / cache["metadata_relative_path"])
@@ -633,9 +817,14 @@ def verify_asset(item: Mapping[str, Any], store: Phase2CStore, manifest: Mapping
             **validation}
 
 
-def _audit_team(team_id: str, base_payload: Mapping[str, Any], advanced_payload: Mapping[str, Any]) -> dict[str, Any]:
-    base = _pair_rows(base_payload, TARGET_SEASON, team_id)
-    advanced = _pair_rows(advanced_payload, TARGET_SEASON, team_id)
+def _audit_team(
+    team_id: str,
+    base_payload: Mapping[str, Any],
+    advanced_payload: Mapping[str, Any],
+    spec: HistoricalSeasonSpec = PHASE2C_SPEC,
+) -> dict[str, Any]:
+    base = _pair_rows(base_payload, spec.target_season, team_id)
+    advanced = _pair_rows(advanced_payload, spec.target_season, team_id)
     base_summary = summarize_pair_rows(base); advanced_summary = summarize_pair_rows(advanced)
     base_strict = strict_pair_identifier_audit(base); advanced_strict = strict_pair_identifier_audit(advanced)
     reconciliation = join_pair_measures(base, advanced)
@@ -680,6 +869,7 @@ def _payloads(manifest: Mapping[str, Any], store: Phase2CStore) -> dict[str, dic
 
 def _canary_audit(manifest: Mapping[str, Any], store: Phase2CStore) -> dict[str, Any]:
     payloads = _payloads(manifest, store)
+    spec = store.spec
     player_sets = {}
     for mode in PLAYER_PER_MODES:
         rows = _player_rows(payloads["players"][mode]); audit = strict_player_source_audit(rows)
@@ -688,21 +878,28 @@ def _canary_audit(manifest: Mapping[str, Any], store: Phase2CStore) -> dict[str,
         player_sets[mode] = set(audit["player_ids"])
     if player_sets[PLAYER_PER_MODES[0]] != player_sets[PLAYER_PER_MODES[1]]:
         raise ValueError("Canary prior-player ID sets differ")
-    prior = player_rows_by_id(attach_prior_context(_player_rows(payloads["players"]["Per100Possessions"]), PRIOR_FEATURE_SEASON))
+    prior = player_rows_by_id(attach_prior_context(
+        _player_rows(payloads["players"]["Per100Possessions"]),
+        spec.prior_feature_season,
+    ))
     rows = []
     teams = {}
-    for team_id in CANARY_TEAM_IDS:
-        audit = _audit_team(team_id, payloads[team_id]["Base"], payloads[team_id]["Advanced"])
+    for team_id in spec.canary_team_ids:
+        audit = _audit_team(
+            team_id, payloads[team_id]["Base"], payloads[team_id]["Advanced"], spec
+        )
         if not audit["clean_release_gate"]:
             raise ValueError(f"Canary team audit failed: {team_id}")
-        base = _pair_rows(payloads[team_id]["Base"], TARGET_SEASON, team_id)
-        advanced = _pair_rows(payloads[team_id]["Advanced"], TARGET_SEASON, team_id)
+        base = _pair_rows(payloads[team_id]["Base"], spec.target_season, team_id)
+        advanced = _pair_rows(payloads[team_id]["Advanced"], spec.target_season, team_id)
         poss = {(row["team_id"], row["pair_key"]): row["POSS"] for row in advanced}
         for row in base:
             row = dict(row); row["POSS"] = poss[(team_id, row["pair_key"])]; rows.append(row)
         teams[team_id] = {"matched": audit["reconciliation"]["matched_pairs"]}
-    joined = join_pairs_to_prior_players(rows, prior, TARGET_SEASON, PRIOR_FEATURE_SEASON)
-    result = {"status": "passed", "assets_verified": 12, "teams": teams,
+    joined = join_pairs_to_prior_players(
+        rows, prior, spec.target_season, spec.prior_feature_season
+    )
+    result = {"status": "passed", "assets_verified": spec.canary_asset_count, "teams": teams,
               "player_rows": len(player_sets[PLAYER_PER_MODES[0]]),
               "coverage": _coverage_detail(joined)}
     result["deterministic_sha256"] = canonical_json_hash(result)
@@ -841,7 +1038,12 @@ def reconcile_verified_prefix_gates(
             continue
         try:
             pair_payloads = _payloads(manifest, store)[team_id]
-            audit = _audit_team(team_id, pair_payloads["Base"], pair_payloads["Advanced"])
+            audit = _audit_team(
+                team_id,
+                pair_payloads["Base"],
+                pair_payloads["Advanced"],
+                store.spec,
+            )
         except Exception as exc:
             return _persist_gate_stop(
                 manifest,
@@ -918,7 +1120,8 @@ def _failure_evidence_path(
 ) -> Path:
     return (
         store.cache_root
-        / "phase2c/failure_evidence"
+        / store.spec.release_key
+        / "failure_evidence"
         / f"{_safe_id(item['asset_id'])}.attempt-{attempt_number}.body"
     )
 
@@ -932,7 +1135,8 @@ def _failure_evidence_collision_path(
     identity_token = canonical_json_hash(item["identity"])[:24]
     return (
         store.cache_root
-        / "phase2c/failure_evidence"
+        / store.spec.release_key
+        / "failure_evidence"
         / f"collision-{identity_token}-a{attempt_number}-{body_sha256}.body"
     )
 
@@ -1063,7 +1267,7 @@ def run_acquisition(store: Phase2CStore, *, live_acquisition: bool,
     if not live_acquisition:
         raise ValueError("Live acquisition requires explicit authorization")
     if timeout_seconds != 30 or delay_seconds < 1:
-        raise ValueError("Phase 2C requires timeout=30 and delay>=1 second")
+        raise ValueError(f"{store.spec.phase_label} requires timeout=30 and delay>=1 second")
     manifest = store.load()
     if manifest.get("integrity_stop"):
         return _counts(manifest, completed=False, stop_category="persisted_integrity_stop",
@@ -1094,9 +1298,21 @@ def run_acquisition(store: Phase2CStore, *, live_acquisition: bool,
         if not allowed or allowed["ordinal"] != item["ordinal"] or allowed["identity"] != item["identity"]:
             return _counts(manifest, completed=False, stop_category="allowlist_identity_mismatch")
         next_number = len(item["attempt_history"]) + 1
-        if next_number > 2 or attempts >= MAX_ATTEMPTS or (next_number == 2 and retries >= MAX_RETRIES):
+        authorization = manifest["authorization"]
+        if (
+            next_number > authorization["maximum_attempts_per_asset"]
+            or attempts >= authorization["maximum_total_attempts"]
+            or (
+                next_number == 2
+                and retries >= authorization["maximum_retry_attempts"]
+            )
+        ):
             return _counts(manifest, completed=False, stop_category="attempt_budget_exhausted")
-        if next_number == 1 and sum(bool(value["attempt_history"]) for value in manifest["assets"]) >= MAX_FIRST_ATTEMPTS:
+        if (
+            next_number == 1
+            and sum(bool(value["attempt_history"]) for value in manifest["assets"])
+            >= authorization["maximum_first_attempts"]
+        ):
             return _counts(manifest, completed=False, stop_category="first_attempt_budget_exhausted")
         cache_path = store.cache_root / item["cache"]["relative_path"]
         metadata_path = store.cache_root / item["cache"]["metadata_relative_path"]
@@ -1133,7 +1349,7 @@ def run_acquisition(store: Phase2CStore, *, live_acquisition: bool,
         elif attempts:
             sleep_fn(delay_seconds)
         event = {"attempt_number": next_number, "started_at": store.clock(), "status": "started",
-                 "timeout_seconds": timeout_seconds, "request_kind": "phase2c_live"}
+                 "timeout_seconds": timeout_seconds, "request_kind": store.spec.request_kind}
         item["attempt_history"].append(event); item["attempt_count"] = next_number
         store.transition(manifest, item, "attempting", "attempt_recorded_before_transport")
         attempts += 1
@@ -1146,6 +1362,7 @@ def run_acquisition(store: Phase2CStore, *, live_acquisition: bool,
                     timeout,
                     cache_root=store.cache_root,
                     approved_identities=approved,
+                    spec=store.spec,
                 )
             response = selected_transport(item["identity"], timeout_seconds)
             event.update({"latency_seconds": response.elapsed_seconds, "http_status": response.status_code,
@@ -1157,7 +1374,7 @@ def run_acquisition(store: Phase2CStore, *, live_acquisition: bool,
             try: payload = json.loads(response.body.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise TransportError("invalid_json", str(exc)) from exc
-            try: validation = validate_response(payload, item["identity"], manifest)
+            try: validation = validate_response(payload, item["identity"], manifest, store.spec)
             except ValueError as exc: raise TransportError("validation_failure", str(exc)) from exc
             item["schema_verification"] = {"status": "accepted" if validation["accepted"] else "rejected", **validation}
             if not validation["accepted"]:
@@ -1166,7 +1383,7 @@ def run_acquisition(store: Phase2CStore, *, live_acquisition: bool,
             item["cache"].update({"cache_file_bytes": cache_path.stat().st_size,
                                   "raw_body_hash": raw_body_hash(response.body),
                                   "canonical_json_hash": canonical_json_hash(payload)})
-            item["source_event"] = {"provenance_format": "phase2c-live-v1", "acquired_at": store.clock(),
+            item["source_event"] = {"provenance_format": store.spec.provenance_format, "acquired_at": store.clock(),
                                     "http_status": 200, "latency_seconds": response.elapsed_seconds,
                                     "response_body_bytes": len(response.body),
                                     "raw_body_hash": item["cache"]["raw_body_hash"]}
@@ -1313,7 +1530,11 @@ def run_acquisition(store: Phase2CStore, *, live_acquisition: bool,
                           "error_detail": exc.detail})
             item["last_error"] = {"category": exc.category, "detail": exc.detail,
                                   "retry_after_seconds": retry_after if retryable else None}
-            if retryable and next_number == 1 and retries < MAX_RETRIES:
+            if (
+                retryable
+                and next_number == 1
+                and retries < authorization["maximum_retry_attempts"]
+            ):
                 store.transition(manifest, item, "retryable", exc.category, exc.detail)
                 return run_acquisition(
                     store,
@@ -1335,10 +1556,11 @@ def run_acquisition(store: Phase2CStore, *, live_acquisition: bool,
 
 
 def analyze_release(store: Phase2CStore) -> dict[str, Any]:
-    """Deterministically replay and audit a complete Phase 2C request set."""
+    """Deterministically replay and audit one configured complete request set."""
+    spec = store.spec
     manifest = store.load()
     if manifest.get("integrity_stop") or any(item["status"] != "verified" for item in manifest["assets"]):
-        raise ValueError("All 62 Phase 2C assets must verify before analysis")
+        raise ValueError(f"All 62 {spec.phase_label} assets must verify before analysis")
     recomputed_canary = _json_normalized(_canary_audit(manifest, store))
     persisted_canary = manifest.get("canary_result")
     canary_certification = _canary_certification(persisted_canary, recomputed_canary)
@@ -1351,7 +1573,9 @@ def analyze_release(store: Phase2CStore) -> dict[str, Any]:
     totals_ids = {strict_player_id(row["PLAYER_ID"]) for row in player_rows["Totals"]}
     if per100_ids != totals_ids:
         raise ValueError("Prior-player Per100 and Totals ID sets differ")
-    prior = player_rows_by_id(attach_prior_context(player_rows["Per100Possessions"], PRIOR_FEATURE_SEASON))
+    prior = player_rows_by_id(attach_prior_context(
+        player_rows["Per100Possessions"], spec.prior_feature_season
+    ))
     if any(len(value) != 1 for value in prior.values()):
         raise ValueError("Prior-player index is not unique")
     per_team = {}; all_base = []; all_advanced = []; asset_ledger = []
@@ -1364,9 +1588,11 @@ def analyze_release(store: Phase2CStore) -> dict[str, Any]:
                              "schema_fingerprints": replay["fingerprints"],
                              "latency_seconds": (item.get("source_event") or {}).get("latency_seconds")})
     for team_id in sorted(manifest["team_directory"], key=int):
-        base = _pair_rows(payloads[team_id]["Base"], TARGET_SEASON, team_id)
-        advanced = _pair_rows(payloads[team_id]["Advanced"], TARGET_SEASON, team_id)
-        audit = _audit_team(team_id, payloads[team_id]["Base"], payloads[team_id]["Advanced"])
+        base = _pair_rows(payloads[team_id]["Base"], spec.target_season, team_id)
+        advanced = _pair_rows(payloads[team_id]["Advanced"], spec.target_season, team_id)
+        audit = _audit_team(
+            team_id, payloads[team_id]["Base"], payloads[team_id]["Advanced"], spec
+        )
         per_team[team_id] = {"team_name": manifest["team_directory"][team_id]["team_name"], **audit,
                              "target_audit": summarize_advanced_targets(advanced),
                              "target_ineligible_rows": identify_zero_or_missing_possession_rows(advanced, base),
@@ -1383,11 +1609,15 @@ def analyze_release(store: Phase2CStore) -> dict[str, Any]:
     for row in all_base:
         value = dict(row); value["POSS"] = advanced_lookup[(row["team_id"], row["pair_key"])]["POSS"]
         join_input.append(value)
-    joined = join_pairs_to_prior_players(join_input, prior, TARGET_SEASON, PRIOR_FEATURE_SEASON)
+    joined = join_pairs_to_prior_players(
+        join_input, prior, spec.target_season, spec.prior_feature_season
+    )
     coverage_by_team = {}
     for team_id in sorted(manifest["team_directory"], key=int):
         rows = [row for row in join_input if row["team_id"] == team_id]
-        team_joined = join_pairs_to_prior_players(rows, prior, TARGET_SEASON, PRIOR_FEATURE_SEASON)
+        team_joined = join_pairs_to_prior_players(
+            rows, prior, spec.target_season, spec.prior_feature_season
+        )
         coverage_by_team[team_id] = {"players": summarize_player_level_coverage(rows, prior),
                                      "pairs": summarize_pair_level_coverage(team_joined),
                                      "exposure": summarize_exposure_weighted_coverage(team_joined),
@@ -1409,7 +1639,7 @@ def analyze_release(store: Phase2CStore) -> dict[str, Any]:
                         "affected_pair_observations": len(affected),
                         "summed_base_minutes": sum(_numeric(row.get("MIN")) or 0 for row in affected),
                         "summed_pair_possessions": sum(_numeric(row.get("POSS")) or 0 for row in affected),
-                        "reason": "no_2021-22_source_record"})
+                        "reason": f"no_{spec.prior_feature_season}_source_record"})
     totals_minutes = [_numeric(row.get("MIN")) for row in player_rows["Totals"]]
     per100_minutes = [_numeric(row.get("MIN")) for row in player_rows["Per100Possessions"]]
     totals_valid = [value for value in totals_minutes if value is not None]
@@ -1445,11 +1675,14 @@ def analyze_release(store: Phase2CStore) -> dict[str, Any]:
             "absolute_net_rating_at_least_50": sum(abs(_numeric(row.get("NET_RATING")) or 0) >= 50 for row in retained),
             "absolute_net_rating_at_least_100": sum(abs(_numeric(row.get("NET_RATING")) or 0) >= 100 for row in retained),
         })
-    canary_rows = [row for row in join_input if row["team_id"] in CANARY_TEAM_IDS]
-    canary_joined = join_pairs_to_prior_players(canary_rows, prior, TARGET_SEASON, PRIOR_FEATURE_SEASON)
+    canary_rows = [row for row in join_input if row["team_id"] in spec.canary_team_ids]
+    canary_joined = join_pairs_to_prior_players(
+        canary_rows, prior, spec.target_season, spec.prior_feature_season
+    )
     summary = {
-        "analysis_version": ANALYSIS_VERSION, "target_season": TARGET_SEASON,
-        "prior_feature_season": PRIOR_FEATURE_SEASON, "phase2b_prerequisite": manifest["phase2b_prerequisite"],
+        "analysis_version": spec.analysis_version, "target_season": spec.target_season,
+        "prior_feature_season": spec.prior_feature_season,
+        spec.prerequisite_key: manifest[spec.prerequisite_key],
         "request_set": {"assets": 62, "player_assets": 2, "pair_assets": 60,
                         "verified": len(asset_ledger), "attempts": sum(len(item["attempt_history"]) for item in manifest["assets"]),
                         "retries": sum(max(0, len(item["attempt_history"]) - 1) for item in manifest["assets"])},
@@ -1490,10 +1723,10 @@ def analyze_release(store: Phase2CStore) -> dict[str, Any]:
                           "population_exhaustiveness": "unproven_with_boundary_signals" if boundary else "unproven_no_boundary_signal_observed"},
     }
     summary["primary_classification"] = (
-        "2022-23 raw release supported with population caveats; next historical phase ready for separate authorization"
+        spec.supported_classification
         if all((summary["release_gates"]["request_set_complete"], summary["release_gates"]["returned_row_integrity"],
                 summary["release_gates"]["player_sources_valid"], summary["release_gates"]["canary_passed"]))
-        else "2022-23 raw request set complete; release audit unresolved"
+        else spec.unresolved_classification
     )
     deterministic = deepcopy(summary)
     for item in deterministic["asset_ledger"]: item.pop("latency_seconds", None)

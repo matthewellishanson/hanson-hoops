@@ -259,6 +259,18 @@ def test_retryable_failure_retries_same_identity_and_preserves_history(store, ex
     assert waits[0] == 30.0
 
 
+def test_phase2c_attempt_uses_configured_request_kind(store):
+    result = phase2c.run_acquisition(
+        store,
+        live_acquisition=True,
+        transport=lambda i, t: phase2c.TransportResult(403, b"controlled", .1, {}),
+        sleep_fn=lambda _: None,
+    )
+    assert result["attempts"] == 1
+    event = store.load()["assets"][0]["attempt_history"][0]
+    assert event["request_kind"] == "phase2c_live"
+
+
 @pytest.mark.parametrize("status", [401, 403, 429, 302])
 def test_nonretryable_http_stops_once(store, status):
     result = phase2c.run_acquisition(

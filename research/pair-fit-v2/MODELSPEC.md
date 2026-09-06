@@ -108,18 +108,18 @@ Open questions that remain provisional include:
 
 ## Historical split for future work
 
-The intended future historical split is:
+The amended intended historical split is:
 
-- training targets: 2021–22 through 2023–24
+- training targets: 2014–15 through 2023–24
 - validation target: 2024–25
-- untouched test target: 2025–26
-- prior player data beginning in 2020–21
+- untouched final-test target: 2025–26
+- each target uses prior-player inputs from its immediately preceding season; the earliest intended target therefore requires 2013–14 inputs
 
 Validation must be time-ordered or rolling-origin, with 2025-26 preserved as the untouched final test season. A random pair-row split is explicitly rejected because overlapping players and pairs violate row independence and could cross split boundaries.
 
 This document does not claim that the final model is valid or that interaction effects are predictable. The purpose of Phase 0 is feasibility and data-contract validation only.
 
-The current research status is: Phase 1A through Phase 1F are complete; Phase 2A/2A.1 established the historical canary; Phase 2B completed the 2023-24 raw release; and Phase 2C completed the 2022-23 raw release. Phase 2B contains 5,207 one-to-one pair observations and Phase 2C contains 4,805, both with identical approved Base/Advanced schemas and strict prior-season player joins. Phase 2C's 2021-22 player modes each contain the same 605 unique IDs; its pair-history categories are 3,302 complete, 1,345 one missing, and 158 both missing. The Phase 2C request set is complete, but global pair-population exhaustiveness remains unproven. No final target, positive exposure threshold, recovered-only target value, materialization, feature set, missing-history policy, or model was selected or created. Predictive feasibility remains unverified.
+The current research status is: Phase 1A through Phase 1F are complete; Phase 2A/2A.1 established the historical canary; Phase 2B completed the 2023-24 raw release; Phase 2C completed 2022-23; and Phase 2D completed 2021-22. These releases contain respectively 5,207, 4,805, and 5,745 one-to-one observations with the approved Base/Advanced schemas and strict prior-season joins. Phase 2D's 2020-21 player modes each contain the same 540 unique IDs; its pair-history categories are 3,592 complete, 1,865 one missing, and 288 both missing. These request sets are complete, but global pair-population exhaustiveness remains unproven. Older seasons in the amended training window require separate authorization. No final target, positive exposure threshold, recovered-only target value, materialization, feature set, missing-history policy, or model was selected or created. Predictive feasibility remains unverified.
 
 ## Prior-player join audit (Phase 0F)
 
