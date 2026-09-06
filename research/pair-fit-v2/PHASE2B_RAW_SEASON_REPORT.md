@@ -99,7 +99,7 @@ The original five-team canary reproduces exactly: 880 matches; 83/108 player cov
 11. **Next historical phase ready?** The raw release supports a separately authorized next phase, subject to population caveats; no next season is authorized here.
 12. **Deferred decisions?** Target choice, positive exposure threshold, missing-history policy, features, weights, curation, validation, interaction formula, and modeling remain deferred.
 
-The next authorized work should review the three 250-row team-seasons and decide whether additional bounded population evidence is necessary before historical expansion. Formal learning checkpoints remain deferred until historical population acquisition is complete or the user explicitly requests them. Organizational agentic-workflow standards must be reviewed and applied before the next authorized phase.
+The next authorized work should review the three 250-row team-seasons and decide whether additional bounded population evidence is necessary before historical expansion. Formal learning checkpoints remain deferred until historical population acquisition is complete or the user explicitly requests them. Organizational agentic-workflow standards are deferred until before NBA database work.
 
 ### Continuation reproducibility and verification
 

@@ -4,6 +4,12 @@
 
 This folder contains the Phase 0 feasibility scaffold, Phase 1A evidence audit and Phase 1B architecture contracts for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
 
+## Phase 2C status
+
+Phase 2C completed the exact 62-asset 2022-23 raw-season plan: two 2021-22 player sources and Base/Advanced pair responses for all 30 teams. All 62 first attempts returned HTTP 200 and verified; no retry was used. The release contains 4,805 one-to-one Base/Advanced observations, 4,785 positive-possession targets, and 20 preserved zero-possession rows. Both player modes contain the same 605 strict unique IDs. Prior-history categories are 3,302 complete, 1,345 one missing, and 158 both missing.
+
+Current classification: `2022-23 raw release supported with population caveats; next historical phase ready for separate authorization`. No team returned exactly 250 rows, but that is not proof of endpoint exhaustiveness. No threshold, feature, missing-history, curation, or modeling policy was selected. See `PHASE2C_RAW_SEASON_REPORT.md`.
+
 ## Phase 2B status
 
 Phase 2B's separately authorized continuation is complete. The original Atlanta pre-HTTP failure remains preserved as attempt 1; the bounded extension authorized Atlanta attempt 2 plus the 49 untouched identities, for a cumulative ceiling of 51. All 50 continuation requests returned HTTP 200 and verified. The release now contains 60/60 verified pair assets (ten immutable Phase 2A reuses and 50 Phase 2B acquisitions), 5,207 Base rows, 5,207 Advanced rows, 5,207 exact matches, and 17 preserved zero-possession target-ineligible rows. Two network-blocked analyses produced deterministic SHA-256 `00f4324311368184d1c184be89d23b866551678b3715c262e76b36f459e24b82`.
@@ -79,6 +85,7 @@ Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique 
 - Phase 2A.1 reviewed-promotion report: `PHASE2A1_PLAYER_SCHEMA_PROMOTION_REPORT.md`
 - Phase 2B raw-season report: `PHASE2B_RAW_SEASON_REPORT.md`
 - Phase 2B offline safety-hardening checkpoint: `PHASE2B_SAFETY_HARDENING_CHECKPOINT.md`
+- Phase 2C raw-season report: `PHASE2C_RAW_SEASON_REPORT.md`
 - Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`, `tests/test_phase1b_architecture.py`, `tests/test_phase1d_exhaustiveness.py`, and `tests/test_phase1e_recovery.py`
 
 ## Commands
