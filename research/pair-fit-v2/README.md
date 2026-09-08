@@ -4,11 +4,11 @@
 
 This folder contains the Phase 0 feasibility scaffold, Phase 1A evidence audit and Phase 1B architecture contracts for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
 
-## Phase 2D status
+## Phase 2E status
 
-Phase 2D completed the configured 62-asset 2021-22 raw-season release: two 2020-21 player sources and Base/Advanced pair responses for all 30 teams. All 62 assets verified on their first attempt with no retries. The release contains 5,745 one-to-one observations, 5,723 positive-possession targets, and 22 preserved zero-possession rows. Both player modes contain the same 540 strict unique IDs; prior-history categories are 3,592 complete, 1,865 one missing, and 288 both missing.
+Phase 2E completed the seven separately authorized 62-asset raw releases from 2020-21/2019-20 through 2014-15/2013-14: 434 verified assets and 31,181 one-to-one pair-season-team observations, including 93 preserved zero-possession rows. Together with Phases 2B-2D, the 2014-15 through 2023-24 training-target window contains 46,938 raw observations. The final cache-only classification is `2014-15 through 2023-24 raw training window acquired with population caveats; curation planning ready`; its deterministic analysis SHA-256 is `d57840f80172df49ea7350520fbf1961499c6f558c70c40ced2bab38c7b5379f`.
 
-Current classification: `2021-22 raw release supported with population caveats; older historical expansion ready for separate planning`. No team returned exactly 250 rows, but population exhaustiveness remains unproven. The Phase 2C state machine now operates through an immutable season specification while retaining its prior behavior and hashes. The intended training target window is 2014-15 through 2023-24; 2024-25 is validation and protected 2025-26 remains the untouched final test. Phase 2D acquired only 2021-22/2020-21. See `PHASE2D_RAW_SEASON_REPORT.md`.
+The original uncertain Cleveland Advanced start remains preserved and was resolved only by its separately authorized attempt-2 recovery; one later retryable timeout also recovered. There are no failed or quarantined assets. Schema and one-to-one reconciliation passed for every release, while global endpoint-population exhaustiveness remains unproven and 2020-21 Houston's exact-250 result is only a boundary signal. No curated dataset, threshold, feature, missing-history policy, validation decision, or model has been created. The intended training target window is complete; 2024-25 remains validation and protected 2025-26 remains the untouched final test. See `PHASE2E_MULTI_SEASON_RAW_REPORT.md`.
 
 ## Phase 2C status
 
@@ -93,6 +93,7 @@ Phase 0F acquired one live 2023-24 `LeagueDashPlayerStats` response (572 unique 
 - Phase 2B offline safety-hardening checkpoint: `PHASE2B_SAFETY_HARDENING_CHECKPOINT.md`
 - Phase 2C raw-season report: `PHASE2C_RAW_SEASON_REPORT.md`
 - Phase 2D raw-season report: `PHASE2D_RAW_SEASON_REPORT.md`
+- Phase 2E multi-season raw acquisition report: `PHASE2E_MULTI_SEASON_RAW_REPORT.md`
 - Tests: `tests/`, including `tests/test_phase1a_pilot_audit.py`, `tests/test_phase1b_architecture.py`, `tests/test_phase1d_exhaustiveness.py`, and `tests/test_phase1e_recovery.py`
 
 ## Commands
