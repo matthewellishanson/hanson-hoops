@@ -49,6 +49,7 @@ print("Project root:", PROJECT_ROOT)
 # This function verifies raw-file hashes and checks the pair data before
 # returning anything. It does not change the cache.
 
+sys.path.append(str(SRC_ROOT))
 from pair_fit_v2.phase3a_population_audit import _load_population, _history_status
 
 rows, profiles, boundaries, evidence = _load_population(CACHE_ROOT)
@@ -154,6 +155,9 @@ missing_summary["missing_share"] = (
 )
 
 missing_summary.head(30)
+
+# save missing summary to csv
+missing_summary.to_csv(PROJECT_ROOT / "missing_summary.csv", index=True)
 
 
 # %%
@@ -390,6 +394,7 @@ pair_df["history_5yr"] = [
     for row in rows
 ]
 # %%
+# Inspect pairs with at least 150 shared possessions.
 eligible_150_df = pair_df.loc[pair_df["POSS"] >= 150].copy()
 
 print(f"Rows at POSS >= 150: {len(eligible_150_df):,}")
@@ -453,6 +458,8 @@ history_150_summary = pd.concat(
 )
 
 history_150_summary
+# save to csv
+history_150_summary.to_csv(PROJECT_ROOT / "history_coverage_poss_150_summary.csv", index=False)
 
 # %%
 history_150_by_season = (
@@ -463,6 +470,9 @@ history_150_by_season = (
     )
     * 100
 )
+history_150_by_season = history_150_by_season[
+    ["complete", "one_missing", "both_missing"]
+]
 
 history_150_by_season
 history_150_by_season.to_csv(PROJECT_ROOT / "history_coverage_poss_150_by_season.csv")
@@ -488,4 +498,242 @@ plt.savefig(
     dpi=150,
     bbox_inches="tight",
 )
+# %%
+# Build time-aware prior-pair histories.
+#
+# All positive prior pair exposure counts, even if the prior observation
+# would not itself meet the 150-possession target threshold.
+
+pair_history_source = positive_df.copy()
+pair_history_source["pair_key"] = pair_history_source["pair"].apply(tuple)
+pair_history_source["season_start"] = (
+    pair_history_source["season"].str[:4].astype(int)
+)
+
+pair_season_history = (
+    pair_history_source
+    .groupby(["pair_key", "season_start"], as_index=False)
+    .agg(
+        season_pair_possessions=("POSS", "sum"),
+        teams_in_season=("team_id", "nunique"),
+    )
+    .sort_values(["pair_key", "season_start"])
+)
+
+pair_groups = pair_season_history.groupby("pair_key", sort=False)
+
+pair_season_history["observed_prior_seasons"] = (
+    pair_groups.cumcount()
+)
+
+pair_season_history["cumulative_prior_pair_possessions"] = (
+    pair_groups["season_pair_possessions"].cumsum()
+    - pair_season_history["season_pair_possessions"]
+)
+
+pair_season_history["previous_observed_season"] = (
+    pair_groups["season_start"].shift(1)
+)
+
+pair_season_history["years_since_previous_observation"] = (
+    pair_season_history["season_start"]
+    - pair_season_history["previous_observed_season"]
+)
+
+pair_season_history["seen_in_earlier_window_season"] = (
+    pair_season_history["observed_prior_seasons"] > 0
+)
+# %%
+eligible_150_df["pair_key"] = eligible_150_df["pair"].apply(tuple)
+eligible_150_df["season_start"] = (
+    eligible_150_df["season"].str[:4].astype(int)
+)
+
+repeat_150_df = eligible_150_df.merge(
+    pair_season_history[
+        [
+            "pair_key",
+            "season_start",
+            "observed_prior_seasons",
+            "cumulative_prior_pair_possessions",
+            "years_since_previous_observation",
+            "seen_in_earlier_window_season",
+        ]
+    ],
+    on=["pair_key", "season_start"],
+    how="left",
+    validate="many_to_one",
+)
+# %%
+repeat_summary = (
+    repeat_150_df
+    .groupby("seen_in_earlier_window_season")
+    .agg(
+        rows=("POSS", "size"),
+        summed_possessions=("POSS", "sum"),
+        median_target_possessions=("POSS", "median"),
+        median_net_rating=("NET_RATING", "median"),
+        net_rating_variance=("NET_RATING", "var"),
+    )
+)
+
+repeat_summary["row_share"] = (
+    repeat_summary["rows"] / len(repeat_150_df)
+)
+
+repeat_summary["possession_share"] = (
+    repeat_summary["summed_possessions"]
+    / repeat_150_df["POSS"].sum()
+)
+
+repeat_summary
+# %%
+repeat_by_season = (
+    pd.crosstab(
+        repeat_150_df["season"],
+        repeat_150_df["seen_in_earlier_window_season"],
+        normalize="index",
+    )
+    * 100
+)
+
+repeat_by_season = repeat_by_season.rename(
+    columns={
+        False: "not_seen_in_earlier_window_season",
+        True: "seen_in_earlier_window_season",
+    }
+)
+
+repeat_by_season
+# %%
+repeat_by_season.to_csv("repeat_by_season.csv", index=True)
+repeat_summary.to_csv("repeat_summary.csv", index=True)
+
+# %%
+# Compare how the 100- and 150-possession candidates affect player and
+# observation coverage within every season.
+
+retention_records = []
+
+for season in sorted(positive_df["season"].unique()):
+    season_rows = positive_df.loc[
+        positive_df["season"] == season
+    ]
+
+    all_players = (
+        set(season_rows["player_1_id"])
+        | set(season_rows["player_2_id"])
+    )
+
+    for floor in [100, 150]:
+        retained_rows = season_rows.loc[
+            season_rows["POSS"] >= floor
+        ]
+
+        retained_players = (
+            set(retained_rows["player_1_id"])
+            | set(retained_rows["player_2_id"])
+        )
+
+        retention_records.append(
+            {
+                "season": season,
+                "possession_floor": floor,
+                "all_rows": len(season_rows),
+                "retained_rows": len(retained_rows),
+                "row_share": len(retained_rows) / len(season_rows),
+                "possession_share": (
+                    retained_rows["POSS"].sum()
+                    / season_rows["POSS"].sum()
+                ),
+                "all_players": len(all_players),
+                "retained_players": len(retained_players),
+                "player_share": (
+                    len(retained_players) / len(all_players)
+                ),
+            }
+        )
+
+season_retention_df = pd.DataFrame(retention_records)
+season_retention_df
+
+# %%
+team_season_full = (
+    positive_df
+    .groupby(["season", "team_id"])
+    .size()
+    .rename("all_rows")
+)
+
+team_season_150 = (
+    eligible_150_df
+    .groupby(["season", "team_id"])
+    .size()
+    .rename("eligible_rows")
+)
+
+team_season_retention = (
+    pd.concat(
+        [team_season_full, team_season_150],
+        axis=1,
+    )
+    .fillna(0)
+)
+
+team_season_retention["eligible_rows"] = (
+    team_season_retention["eligible_rows"].astype(int)
+)
+
+team_season_retention["row_share"] = (
+    team_season_retention["eligible_rows"]
+    / team_season_retention["all_rows"]
+)
+
+team_season_retention.describe()
+
+# %%
+team_season_retention.nsmallest(
+    20,
+    "eligible_rows",
+)
+# %%
+# save the retention data to CSV files
+season_retention_df.to_csv(
+    PROJECT_ROOT / "threshold_retention_by_season.csv",
+    index=False,
+)
+
+team_season_retention.rename_axis(
+    ["season", "team_id"]
+).reset_index().to_csv(
+    PROJECT_ROOT / "threshold_retention_by_team_season.csv",
+    index=False,
+)
+
+# %%
+# Plot the retention data for visual inspection
+# Plot retention by season
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(10, 6))
+plt.plot(
+    season_retention_df["season"],
+    season_retention_df["row_share"],
+    marker="o",
+    label="Row Share"
+)
+plt.plot(
+    season_retention_df["season"],
+    season_retention_df["player_share"],
+    marker="o",
+    label="Player Share"
+)
+plt.xlabel("Season")
+plt.ylabel("Retention Share")
+plt.title("Retention by Season")
+plt.legend()
+plt.grid(True)
+plt.savefig(PROJECT_ROOT / "retention_by_season.png")
+plt.show()
+
 # %%

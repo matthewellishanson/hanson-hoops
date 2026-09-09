@@ -1,0 +1,3 @@
+seen_in_earlier_window_season,rows,summed_possessions,median_target_possessions,median_net_rating,net_rating_variance,row_share,possession_share
+False,18261,13351169,487.0,-1.8,97.20597908949871,0.6763082848783378,0.5755152339337867
+True,8740,9847468,831.0,0.6,76.80782735170453,0.32369171512166217,0.42448476606621327
