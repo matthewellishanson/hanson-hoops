@@ -10,6 +10,7 @@ fixtures/*.csv
 *.feather
 .pytest_cache/
 .pytest_tmp/
+/.t/
 
 # Python-generated files
 __pycache__/

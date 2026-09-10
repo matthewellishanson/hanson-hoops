@@ -113,3 +113,237 @@ After the local cache lookup was corrected, the cache-only audit found: 482 uniq
 No 2023-24 shot-zone retry, 2024-25/2025-26 access, team-by-team request, raw-event request, supplemental feature source, curation, model work, or policy selection occurred. The 2023-24 result demonstrates that normalized zone counts/shares/attempt indicators and later efficiency candidates may be derivable only under the documented interpretation; it does not establish window-wide support, predictive value, smoothing parameters, or a curated feature definition. The 2013-14 exact-total disagreement blocks that conclusion for Phase 3B.
 
 Primary classification: **`shot-zone source semantics unsupported; Phase 3B zone features blocked`**.
+
+---
+
+## Historical diagnosis under amended repository baseline
+
+The amended baseline is valid. HEAD `354556d1eac3ee3c04cee300167f8ff5b74bdec5` is clean; the four originally untracked Phase 3A.1 artifacts are now tracked. The commit itself contains the specified EDA files and no Phase 3A.1 files. All Phase 1/2 anchors and the Phase 3A deterministic SHA-256 `dbe0b83dca9196e915b42223d47dd473988c42313a7cd8910448bb282f99054f` reproduced. The preserved 2023-24 quarantine, reviewed byte-identical raw copy, reviewed-promotion event, player-Totals dependency, and 2013-14 quarantine/attempt hashes remained unchanged. No network request was made during this diagnosis.
+
+### 2013-14 exact-discrepancy ledger
+
+The cache-only deterministic ledger has SHA-256 `be0434834c22f0a315c2f8372288154e7d706184635cf8053871488bec80a14f`; a second independent replay produced the same result. It records all 41 mismatched player IDs, names, team identities, team counts, games, minutes, totals, seven-zone counts, signed/absolute differences, coverage, null-normalized cells, Corner 3, and percentage checks in memory.
+
+| Finding | Result |
+|---|---:|
+| Shot-location / Base-Totals player rows | 482 / 482, one row per canonical ID |
+| Exact player matches | 441 (91.49%) |
+| Affected players | 41 (8.51%) |
+| Aggregate zone-minus-overall FGM / FGA | -13 / -46 |
+| Absolute FGM / FGA disagreement | 13 / 46 |
+| Maximum player absolute difference | 3 |
+| Difference magnitude 1 / 2 / 3–5 / 6–10 / >10 | 37 / 3 / 1 / 0 / 0 |
+| Affected multi-team / single-team players | 3 / 38 |
+
+Every mismatch has seven-zone totals below (never above) the overall values. The median and 90th-percentile maximum absolute player difference are 1; the 95th percentile is 2. This numerical size is reported, not accepted as a tolerance.
+
+The audit rejects all proposed deterministic parsing/grain corrections: the required nested-header offsets and seven-zone order are correct; Backcourt is included; the overlapping Corner 3 aggregate is excluded from the overall sum and exactly equals left plus right; paired-null normalization is valid; IDs are unique; player/team identities match the Base/Totals source for every affected player; and 38 of 41 affected players are not multi-team cases. Zone percentages reconcile at source precision. Thus no general, evidence-supported correction restores exact reconciliation without inventing attempts. The remaining disagreement is irreducible cross-endpoint disagreement under the current evidence, so 2013-14 remains quarantined and the nine later-season identities were not requested.
+
+### Future ablation contract (specified only)
+
+After—not during—curation and temporal modeling, compare a primary model with the approved shot-profile family against a no-shot diagnostic baseline. Hold curated observations, target, possession and missing-history policies, temporal folds, estimator, preprocessing, hyperparameters, random seed, and metrics constant. The sole difference is the shot-profile family. Report MAE, RMSE, R², calibration, error by season, unseen-pair error, missing-history subgroup error, and pandemic-season sensitivity. No ablation, curation, or model was run here.
+
+Primary classification: **`2013-14 shot discrepancy unresolved; acquisition remains blocked`**.
+
+---
+
+## Amended residual-policy continuation (complete)
+
+This section supersedes the preceding current-status conclusion under the
+explicitly authorized residual policy. Earlier strict-validation failures,
+quarantine bodies, original attempt events, and the 2013-14 diagnostic remain
+historical evidence; none was edited or overwritten.
+
+### Policy and reviewed 2013-14 promotion
+
+The cache-only 2013-14 diagnosis reproduced with SHA-256
+`be0434834c22f0a315c2f8372288154e7d706184635cf8053871488bec80a14f`.
+It establishes a structurally valid one-aggregate-row-per-player response with
+482 exactly reconciled player IDs, 441 exact count matches, and 41 nonnegative
+cross-endpoint residuals. The aggregate difference is 13 FGM and 46 FGA, with
+the classified seven-zone values never greater than the matching Base/Totals
+value and a maximum player-level residual of 3. Headers, zone order, Backcourt,
+Corner 3, paired source-null treatment, IDs, player/team identities, and source
+percentages all pass. This is not a numerical tolerance.
+
+Under residual policy `phase3a1.residual-v1`, the response was revalidated
+cache-only and promoted through a byte-identical verified raw copy. The new
+separate review event is
+`phase3a1.reviewed-promotion-2013-14.residual-v1`. It defines only
+`UNCLASSIFIED_FGM = overall FGM - seven-zone FGM` and
+`UNCLASSIFIED_FGA = overall FGA - seven-zone FGA`; neither field is assigned
+to a named shot zone. The original 2013-14 quarantine response and attempt
+event remain unchanged, and no second 2013-14 request was made.
+
+Paired source-null FGM/FGA remains a narrowly validated structural-zero
+normalization: the derived counts are zero, the source nulls are retained, the
+normalization and attempted-zone flags are retained, and efficiency remains
+undefined for zero attempts. It is not statistical imputation and is not a
+claim of 0% shooting.
+
+### Acquisition accounting and shared schema
+
+After that reviewed promotion, all nine remaining authorized shot-location
+identities, in order from 2014-15 through 2022-23, returned HTTP 200 and
+verified on their first attempt. No retry was used. The shot-zone ledger now
+has exactly 11 attempts: the original 2023-24 and 2013-14 responses plus the
+nine newly verified seasons. The separately authorized 2023-24
+`LeagueDashPlayerStats` Base/Totals dependency has one verified HTTP-200
+attempt. Thus Phase 3A.1 has 12 total transport attempts, below every
+authorized ceiling.
+
+Every accepted body has the same `ShotLocations` nested-header schema: six
+identity columns (`PLAYER_ID`, `PLAYER_NAME`, `TEAM_ID`, `TEAM_ABBREVIATION`,
+`AGE`, `NICKNAME`), `columnsToSkip=6`, `columnSpan=3`, and the zone labels
+Restricted Area, In The Paint (Non-RA), Mid-Range, Left Corner 3, Right Corner
+3, Above the Break 3, Backcourt, and the overlapping Corner 3 aggregate.
+The seven mutually exclusive zones are used for classified totals; Corner 3 is
+used only for its left-plus-right identity check. Each response has one
+aggregate row per canonical player-season ID. Traded players are represented by
+that one aggregate row; no team-stint aggregation or percentage averaging was
+performed.
+
+| Season | Players / exact IDs | Exact counts | Residual players | Classified FGM/FGA | Unclassified FGM/FGA | Classified FGA coverage | Max residual |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 2013-14 | 482 / 482 | 441 (91.49%) | 41 | 92,766 / 204,126 | 13 / 46 | 99.9775% | 3 |
+| 2014-15 | 492 / 492 | 473 (96.14%) | 19 | 92,279 / 205,550 | 8 / 20 | 99.9903% | 2 |
+| 2015-16 | 476 / 476 | 380 (79.83%) | 96 | 94,017 / 207,893 | 48 / 156 | 99.9250% | 8 |
+| 2016-17 | 486 / 486 | 373 (76.75%) | 113 | 95,990 / 209,929 | 71 / 185 | 99.9120% | 10 |
+| 2017-18 | 540 / 540 | 540 (100%) | 0 | 97,435 / 211,707 | 0 / 0 | 100% | 0 |
+| 2018-19 | 530 / 530 | 530 (100%) | 0 | 101,062 / 219,458 | 0 / 0 | 100% | 0 |
+| 2019-20 | 529 / 529 | 529 (100%) | 0 | 86,550 / 188,116 | 0 / 0 | 100% | 0 |
+| 2020-21 | 540 / 540 | 540 (100%) | 0 | 89,020 / 190,983 | 0 / 0 | 100% | 0 |
+| 2021-22 | 605 / 605 | 605 (100%) | 0 | 99,930 / 216,722 | 0 / 0 | 100% | 0 |
+| 2022-23 | 539 / 539 | 539 (100%) | 0 | 103,260 / 217,220 | 0 / 0 | 100% | 0 |
+| 2023-24 | 572 / 572 | 572 (100%) | 0 | 103,739 / 218,700 | 0 / 0 | 100% | 0 |
+
+Across the 5,791 player-seasons, 5,522 have exact counts and 269 have an
+explicit residual. Aggregate classified coverage is 2,290,404 of 2,290,811
+overall FGA (99.9822%); aggregate unclassified counts are 140 FGM and 407 FGA.
+Residuals occur only in 2013-14 through 2016-17, peak in 2016-17, and are not
+treated as a known-zone observation. Every season has exact ID reconciliation,
+valid Corner 3 identities, valid source-percentage checks, approved paired-null
+patterns, and no negative or otherwise impossible residual. The residual-player
+counts by multi-team status are respectively 3/38, 7/12, 8/88, and 9/104
+(multi-team/single-team) for those four affected seasons; this does not support
+a traded-player explanation.
+
+### Cache-only replay and future feature contract
+
+Two independent, process-wide network-blocked replays produced the same
+residual-window SHA-256:
+`74aef283a8e9404239e1eeb6173beb645fc1ca27e6d845da378756ab66cb8fe8`.
+The replay verifies immutable raw-body hashes and its required Phase 1/2
+prerequisites. Phase 3A was independently replayed at the checkpoint and
+produced SHA-256
+`dbe0b83dca9196e915b42223d47dd473988c42313a7cd8910448bb282f99054f`;
+the Phase 3A.1 replay does not itself execute or certify the larger Phase 3A
+population analysis.
+
+For later Phase 3B policy evaluation only, the evidence supports candidate
+representations of: known-zone FGA divided by overall FGA together with
+`UNCLASSIFIED_FGA_SHARE`; known-zone FGA divided by classified-zone FGA as a
+sensitivity representation; zone-attempt and source-null-normalization
+indicators; and zone-efficiency inputs subject to a later fold-safe smoothing
+or reliability policy. No smoothing parameter, final transformation, curation,
+or model has been selected. The previously specified primary-shot-model versus
+no-shot diagnostic ablation remains future work with all observations, target,
+policies, temporal folds, estimator, preprocessing, hyperparameters, seed, and
+metrics held constant except for the shot-profile family.
+
+Focused offline Phase 3A.1 tests pass (12 tests), including exact and positive
+residual paths, negative-residual and residual-makes-greater-than-attempts
+rejection, paired-null treatment, Corner 3 reconciliation, immutable replay,
+request authorization, and network blocking. The final suite and repository
+checks are recorded with this continuation's handoff.
+
+Current primary classification: **`2013-14 through 2023-24 shot profiles acquired and verified; shot-enabled curation ready`**.
+
+---
+
+## Offline correction pass: explicit residual-policy version gate
+
+Residual acceptance is now version-gated. Every semantic audit supplies an
+explicit reconciliation policy: `phase3a1.strict-v1` requires exact totals,
+and only `phase3a1.residual-v1` permits the documented nonnegative
+`UNCLASSIFIED_FGM`/`UNCLASSIFIED_FGA` residual. Missing, blank, malformed, and
+unknown values fail deterministically. Acquisition validates the configured
+policy before planning state changes, transport selection, or HTTP-session
+construction; reviewed promotion and full-window replay validate it before an
+asset is accepted. There is no implicit residual-policy fallback.
+
+The residual-window replay output and each semantic audit now record the active
+identifier. This changes the deterministic replay SHA-256 from the prior
+`74aef283a8e9404239e1eeb6173beb645fc1ca27e6d845da378756ab66cb8fe8` to
+`54743fee0db29f1847ecb46b2dae8ec07871d3a323e88d6a64fdff735c5d1b47`.
+Removing only those newly explicit policy-ID fields from the new replay object
+reproduces the prior digest exactly, demonstrating that the evidence values and
+all other replay fields are unchanged.
+
+The Phase 3A wording above is corrected accordingly: Phase 3A independently
+replayed during the checkpoint with SHA-256
+`dbe0b83dca9196e915b42223d47dd473988c42313a7cd8910448bb282f99054f`.
+The Phase 3A.1 replay verifies its Phase 1/2 prerequisites and shot-zone
+evidence, but does not independently execute or certify Phase 3A analysis.
+
+Focused offline coverage includes recognized-policy acceptance, absent and
+unknown-policy rejection, rejection before acquisition session construction,
+strict exact reconciliation, paired-null preservation, and negative/impossible
+residual rejection. No raw response, metadata, quarantine body, attempt event,
+manifest, ledger, reviewed-promotion event, or substantive result changed.
+
+The initial complete-suite result recorded here was superseded by the following
+offline path-length diagnosis and clean verification pass.
+
+---
+
+## Offline diagnosis: Phase 2C failure-evidence race test
+
+The initial failure in
+`test_postcheck_failure_evidence_race_preserves_returned_body_and_stops` was
+environmental, not a Phase 2C or Phase 3A.1 source defect. Its preserved
+attempt ledger records the precise exception:
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory:
+...\\failure_evidence\\.collision-1e919449389fc60050079d63-a1-
+137b6ad9759d3e4023d33f5519158d65941176de50a5a852e52194a615d31b69.body.
+<pid>.tmp
+```
+
+The longest affected temporary path measured 263 characters. It occurs only
+after the test deliberately makes the normal immutable evidence destination
+collide, when the implementation correctly tries the content-addressed
+collision path. Windows rejects the temporary create-once filename before that
+path can be written, which is surfaced as the generic
+`failure_evidence_collision` stop instead of the intended
+`failure_evidence_postcheck_collision` stop. The failure reproduces with a
+long nested pytest base path, regardless of whether the Phase 3A.1 test module
+runs before or after it. The implicated test passed alone and in five clean
+processes, and neither module leaked monkeypatch, environment, cache, working
+directory, or network state.
+
+The definitive offline command uses the short repository-local, Git-ignored
+`.t` base path (outside `cache/`) and process-wide socket blocking. The
+repository-local `.gitignore` now excludes `.t/`; it is test-only and prevents
+the test base from contaminating copied cache fixtures. No Phase 2C production
+or test code changed.
+
+Final isolated verification results:
+
+| Run | Result |
+|---|---|
+| Implicated Phase 2C test, five fresh runs | 5/5 passed, exit 0 each |
+| Complete Phase 2C module | 34 passed, exit 0 |
+| Phase 3A.1 then implicated test | 14 passed, exit 0 |
+| Implicated test then Phase 3A.1 | 14 passed, exit 0 |
+| Focused Phase 3A.1 module | 13 passed, exit 0 |
+| Complete offline research suite | 324 passed, exit 0 |
+
+Two independent process-wide network-blocked residual-window replays again
+match SHA-256
+`54743fee0db29f1847ecb46b2dae8ec07871d3a323e88d6a64fdff735c5d1b47`
+under `phase3a1.residual-v1`. The supported shot-zone evidence remains 11
+seasons, 5,791 player-seasons, 407 unclassified FGA, and 140 unclassified FGM;
+no cache evidence, raw response, operational ledger, or reviewed-promotion
+record changed.

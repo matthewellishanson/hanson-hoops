@@ -37,6 +37,9 @@ EXTRA = {"Conference":"", "DateFrom":"", "DateTo":"", "Division":"", "GameScope"
 DEPENDENCY_ENDPOINT="LeagueDashPlayerStats"
 DEPENDENCY_URL="https://stats.nba.com/stats/leaguedashplayerstats"
 DEPENDENCY_SEASON="2023-24"
+STRICT_RECONCILIATION_POLICY="phase3a1.strict-v1"
+RESIDUAL_RECONCILIATION_POLICY="phase3a1.residual-v1"
+RECOGNIZED_RECONCILIATION_POLICIES=frozenset((STRICT_RECONCILIATION_POLICY,RESIDUAL_RECONCILIATION_POLICY))
 
 def now(): return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 def strict_id(value):
@@ -52,6 +55,10 @@ def number(value):
 def safe_rate(a, b):
     a, b = number(a), number(b)
     return None if a is None or b is None or b <= 0 else a / b
+def validate_reconciliation_policy(policy):
+    if not isinstance(policy,str) or policy not in RECOGNIZED_RECONCILIATION_POLICIES:
+        raise ValueError(f"unrecognized Phase 3A.1 reconciliation policy: {policy!r}")
+    return policy
 
 def identity(season: str) -> dict[str, Any]:
     value = {"endpoint": ENDPOINT, "season": season, "parameters": {**EXTRA, "league_id":"00", "season":season, "season_type":"regular-season", "measure_type":"Base", "per_mode":"Totals", "distance_range":"By Zone", "pace_adjust":"N", "plus_minus":"N", "rank":"N"}}
@@ -240,12 +247,13 @@ def totals_for_season(cache_root, season):
     source=next(x for x in sources if (x.get("identity") or x.get("source_identity"))["parameters"]["per_mode"]=="Totals")
     cache=source.get("cache") or {"relative_path":source["source_cache_path"]}; payload=json.loads((root/cache["relative_path"]).read_bytes())
     return {strict_id(r["PLAYER_ID"]):r for r in phase3a._rows(payload,"LeagueDashPlayerStats")}
-def audit_shot_payload(payload, totals):
+def audit_shot_payload(payload, totals, *, policy):
+    policy=validate_reconciliation_policy(policy)
     nested=payload.get("resultSets")
     if not isinstance(nested,Mapping) or nested.get("name")!="ShotLocations": raise ValueError("unrecognized ShotLocations structure")
     cats=nested["headers"][0].get("columnNames"); rows=nested.get("rowSet")
     if not isinstance(cats,list) or not isinstance(rows,list) or tuple(cats[:7])!=EXPECTED_ZONES: raise ValueError("required zone categories absent or reordered")
-    ids=[]; nulls=Counter(); affected=set(); bad=[]; total_bad=[]; corner_bad=[]; pct_bad=[]
+    ids=[]; nulls=Counter(); affected=set(); bad=[]; total_bad=[]; corner_bad=[]; pct_bad=[]; residuals=[]
     for row in rows:
         pid=strict_id(row[0]); ids.append(pid); values=[]
         for i,zone in enumerate(cats):
@@ -259,21 +267,57 @@ def audit_shot_payload(payload, totals):
             if att==0 and pct not in (None,0,0.0): bad.append((pid,zone,"zero_attempt_nonzero_pct"))
             if att>0 and (not isinstance(pct,(int,float)) or abs(pct-made/att)>.00051): pct_bad.append((pid,zone))
             values.append((int(made),int(att)))
-        total=totals.get(pid)
-        if total is None or (sum(v[0] for v in values[:7]),sum(v[1] for v in values[:7])) != (int(total["FGM"]),int(total["FGA"])): total_bad.append(pid)
+        total=totals.get(pid); classified_m,classified_a=sum(v[0] for v in values[:7]),sum(v[1] for v in values[:7])
+        if total is None: total_bad.append(pid)
+        else:
+            residual_m,residual_a=int(total["FGM"])-classified_m,int(total["FGA"])-classified_a
+            residuals.append({"player_id":pid,"unclassified_fgm":residual_m,"unclassified_fga":residual_a,"exact":residual_m==0 and residual_a==0,"traded_or_multi_team":int(total.get("TEAM_COUNT",0) or 0)>1})
+            if residual_m<0 or residual_a<0 or residual_m>residual_a: total_bad.append(pid)
+            elif policy != RESIDUAL_RECONCILIATION_POLICY and (residual_m or residual_a): total_bad.append(pid)
         if values[7] != (values[3][0]+values[4][0],values[3][1]+values[4][1]): corner_bad.append(pid)
     if len(ids)!=len(set(ids)) or set(ids)!=set(totals): raise ValueError("shot-location/player-Totals ID reconciliation failed")
-    result={"player_rows":len(ids),"unique_ids":len(set(ids)),"null_counts_by_zone":dict(nulls),"affected_player_zone_cells":sum(nulls.values()),"affected_players":len(affected),"contradictory_patterns":bad,"totals_discrepancies":total_bad,"corner_three_discrepancies":corner_bad,"percentage_discrepancies":pct_bad,"response_grain":"one row per player; one aggregate zone vector per PLAYER_ID","traded_player_count":sum(int(r.get("TEAM_COUNT",0) or 0)>1 for r in totals.values())}
+    rfga=[x["unclassified_fga"] for x in residuals]; rfgm=[x["unclassified_fgm"] for x in residuals]
+    classified_fgm=sum(int(r["FGM"]) for r in totals.values())-sum(rfgm)
+    classified_fga=sum(int(r["FGA"]) for r in totals.values())-sum(rfga)
+    result={"reconciliation_policy_id":policy,"player_rows":len(ids),"unique_ids":len(set(ids)),"null_counts_by_zone":dict(nulls),"affected_player_zone_cells":sum(nulls.values()),"affected_players":len(affected),"contradictory_patterns":bad,"totals_discrepancies":total_bad,"corner_three_discrepancies":corner_bad,"percentage_discrepancies":pct_bad,"response_grain":"one row per player; one aggregate zone vector per PLAYER_ID","traded_player_count":sum(int(r.get("TEAM_COUNT",0) or 0)>1 for r in totals.values()),"exact_count_players":sum(x["exact"] for x in residuals),"players_with_residuals":sum(not x["exact"] for x in residuals),"residual_players_by_traded_status":{"traded":sum(not x["exact"] and x["traded_or_multi_team"] for x in residuals),"not_traded":sum(not x["exact"] and not x["traded_or_multi_team"] for x in residuals)},"overall_fgm":sum(int(r["FGM"]) for r in totals.values()),"overall_fga":sum(int(r["FGA"]) for r in totals.values()),"classified_fgm":classified_fgm,"classified_fga":classified_fga,"aggregate_unclassified_fgm":sum(rfgm),"aggregate_unclassified_fga":sum(rfga),"residual_fgm_quantiles":{k:_quantile(rfgm,q) for k,q in (("min",0),("q1",.25),("median",.5),("q3",.75),("p90",.9),("p95",.95),("max",1))},"residual_fga_quantiles":{k:_quantile(rfga,q) for k,q in (("min",0),("q1",.25),("median",.5),("q3",.75),("p90",.9),("p95",.95),("max",1))},"residual_maximum":max([*rfgm,*rfga],default=0),"residuals":residuals}
     if bad or total_bad or corner_bad or pct_bad: raise ValueError(f"shot-zone semantic reconciliation failed: {result}")
     return result
 def review_and_promote_2023(root):
-    root=Path(root); p=paths(root,"2023-24"); body=p["quarantine"].read_bytes(); payload=json.loads(body); audit=audit_shot_payload(payload,totals_for_season(root,"2023-24"))
+    root=Path(root); p=paths(root,"2023-24"); body=p["quarantine"].read_bytes(); payload=json.loads(body); audit=audit_shot_payload(payload,totals_for_season(root,"2023-24"),policy=STRICT_RECONCILIATION_POLICY)
     if raw_body_hash(body)!="98108b58276756f2afc53ddd87c8287e1627fc740b5c5cfbafe2d48f98c8f444" or canonical_json_hash(payload)!="29c6cb48f6cb87935539a52bf8c4eed152a5c7d15963673958a5bf5ada38d4d5": raise ValueError("original quarantine evidence changed")
     atomic_write_bytes_new(p["raw"],body)
     event={"review_event_id":"phase3a1.reviewed-promotion-2023-24.v1","reviewed_at":now(),"original_quarantine_path":str(p["quarantine"].relative_to(root)),"raw_body_sha256":raw_body_hash(body),"canonical_json_sha256":canonical_json_hash(payload),"null_policy":"paired null FGM/FGA with null-or-zero FG_PCT normalizes to 0/0; percentage remains undefined","audit":audit}
     atomic_write_json(root/"phase3a1/reviewed-promotion-2023-24.json",event)
     manifest=load(root,"manifest"); asset=manifest["assets"][0]; asset.update({"status":"verified_reviewed_promotion","cache":{"body_path":str(p["raw"].relative_to(root)),"raw_body_hash":raw_body_hash(body),"canonical_json_hash":canonical_json_hash(payload)},"review_event":event}); atomic_write_json(p["manifest"],manifest)
     return event
+def review_and_promote_2013_residual(root, *, policy):
+    policy=validate_reconciliation_policy(policy)
+    if policy != RESIDUAL_RECONCILIATION_POLICY: raise ValueError("2013-14 residual promotion requires phase3a1.residual-v1")
+    root=Path(root); p=paths(root,"2013-14"); body=p["quarantine"].read_bytes(); payload=json.loads(body); audit=audit_shot_payload(payload,totals_for_season(root,"2013-14"),policy=policy)
+    if raw_body_hash(body)!="3528826a43d891b76f01c864cb746143fdbce07d97feec7ace0ee8550db2106a": raise ValueError("2013 quarantine evidence changed")
+    atomic_write_bytes_new(p["raw"],body)
+    event={"review_event_id":"phase3a1.reviewed-promotion-2013-14.residual-v1","reviewed_at":now(),"original_quarantine_path":str(p["quarantine"].relative_to(root)),"raw_body_sha256":raw_body_hash(body),"canonical_json_sha256":canonical_json_hash(payload),"policy":"overall-minus-seven-zone nonnegative UNCLASSIFIED_FGM/FGA residual; no allocation to a zone","audit":audit}
+    atomic_write_json(root/"phase3a1/reviewed-promotion-2013-14.json",event)
+    manifest=load(root,"manifest"); asset=next(x for x in manifest["assets"] if x["season"]=="2013-14"); asset.update({"status":"verified_reviewed_promotion","cache":{"body_path":str(p["raw"].relative_to(root)),"raw_body_hash":raw_body_hash(body),"canonical_json_hash":canonical_json_hash(payload)},"review_event":event}); atomic_write_json(p["manifest"],manifest)
+    return event
+def _quantile(values, fraction):
+    values=sorted(values); pos=(len(values)-1)*fraction; lo=int(pos); hi=min(lo+1,len(values)-1); return values[lo]*(1-(pos-lo))+values[hi]*(pos-lo)
+def diagnose_2013_discrepancy(root):
+    """Cache-only ledger; it intentionally does not relax exact reconciliation."""
+    root=Path(root); body=(root/"phase3a1/quarantine/league_dash_player_shot_locations_2013-14_base_totals_by_zone.attempt-1.json").read_bytes(); payload=json.loads(body); result=payload["resultSets"]; cats=result["headers"][0]["columnNames"]; totals=totals_for_season(root,"2013-14"); ledger=[]
+    for row in result["rowSet"]:
+        pid=strict_id(row[0]); zones=[]; nulls=[]
+        for i,zone in enumerate(cats):
+            made,att,pct=row[6+i*3:9+i*3]
+            if made is None and att is None: made,att=0,0; nulls.append(zone)
+            zones.append((int(made),int(att),pct))
+        fgm,fga=sum(x[0] for x in zones[:7]),sum(x[1] for x in zones[:7]); total=totals[pid]; dfgm,dfga=fgm-int(total["FGM"]),fga-int(total["FGA"])
+        if dfgm or dfga:
+            ledger.append({"player_id":pid,"player_name":row[1],"shot_team_id":row[2],"shot_team_abbreviation":row[3],"base_team_id":total.get("TEAM_ID"),"base_team_abbreviation":total.get("TEAM_ABBREVIATION"),"team_count":total.get("TEAM_COUNT"),"traded_or_multi_team":int(total.get("TEAM_COUNT",0) or 0)>1,"gp":total.get("GP"),"total_minutes":total.get("MIN"),"base_fgm":total["FGM"],"base_fga":total["FGA"],"zone_fgm":fgm,"zone_fga":fga,"signed_fgm_difference":dfgm,"signed_fga_difference":dfga,"absolute_fgm_difference":abs(dfgm),"absolute_fga_difference":abs(dfga),"relative_fga_coverage":fgm/fga if False else (fga/total["FGA"] if total["FGA"] else None),"zone_totals_direction":"below" if dfgm<=0 and dfga<=0 else "mixed_or_above","source_null_normalized_cells":nulls,"duplicate_or_multirow_player":False,"corner_three_reconciles":zones[7][:2]==(zones[3][0]+zones[4][0],zones[3][1]+zones[4][1]),"percentages_reconcile":all(a==0 and p in (None,0,0.0) or a>0 and isinstance(p,(int,float)) and abs(p-m/a)<=.00051 for m,a,p in zones)})
+    magnitudes=[max(x["absolute_fgm_difference"],x["absolute_fga_difference"]) for x in ledger]
+    bins={"1":sum(v==1 for v in magnitudes),"2":sum(v==2 for v in magnitudes),"3_to_5":sum(3<=v<=5 for v in magnitudes),"6_to_10":sum(6<=v<=10 for v in magnitudes),"over_10":sum(v>10 for v in magnitudes)}
+    summary={"version":"phase3a1.2013-14-discrepancy-diagnosis.v1","raw_body_sha256":raw_body_hash(body),"canonical_json_sha256":canonical_json_hash(payload),"player_rows":len(result["rowSet"]),"exact_matches":len(result["rowSet"])-len(ledger),"affected_players":len(ledger),"affected_share":len(ledger)/len(result["rowSet"]),"absolute_difference_quantiles":{k:_quantile(magnitudes,q) for k,q in (("min",0),("q1",.25),("median",.5),("q3",.75),("p90",.9),("p95",.95),("max",1))},"aggregate_signed_differences":{"fgm":sum(x["signed_fgm_difference"] for x in ledger),"fga":sum(x["signed_fga_difference"] for x in ledger)},"aggregate_absolute_differences":{"fgm":sum(x["absolute_fgm_difference"] for x in ledger),"fga":sum(x["absolute_fga_difference"] for x in ledger)},"magnitude_bins":bins,"by_traded_status":{"traded":sum(x["traded_or_multi_team"] for x in ledger),"not_traded":sum(not x["traded_or_multi_team"] for x in ledger)},"implementation_checks":{"required_seven_zone_order":tuple(cats[:7])==EXPECTED_ZONES,"corner_aggregate_excluded_from_overall_sum":True,"backcourt_included":True,"all_corner_identities":all(x["corner_three_reconciles"] for x in ledger),"all_percentage_identities":all(x["percentages_reconcile"] for x in ledger),"duplicate_player_ids":False,"all_shot_base_team_identities_match":all(x["shot_team_id"]==x["base_team_id"] for x in ledger),"all_zone_totals_below_or_equal_base":all(x["signed_fgm_difference"]<=0 and x["signed_fga_difference"]<=0 for x in ledger)},"ledger":ledger}
+    summary["deterministic_analysis_sha256"]=canonical_json_hash(summary); return summary
 def analyze_asset(raw_path, season, cache_root):
     body = Path(raw_path).read_bytes(); payload = json.loads(body.decode("utf-8")); return analyze_payload(payload, body, season, cache_root)
 def analyze_payload(payload, body, season, cache_root):
@@ -289,7 +333,8 @@ def _persist_attempt(root, season, body, event, quarantine=False):
     except (UnicodeDecodeError,json.JSONDecodeError): pass
     atomic_write_json(p["metadata"],meta); return meta
 
-def acquire(root, live=False, session_factory=requests.Session):
+def acquire(root, live=False, session_factory=requests.Session, *, policy):
+    policy=validate_reconciliation_policy(policy)
     if not live: raise ValueError("live acquisition requires explicit --live")
     # Initialization documents are immutable; a later reviewed promotion is a
     # legitimate manifest transition and must not be mistaken for a collision.
@@ -309,7 +354,7 @@ def acquire(root, live=False, session_factory=requests.Session):
             if response.is_redirect or response.status_code != 200:
                 _persist_attempt(root,season,body,event,quarantine=True); asset["status"]="stopped"; event["result"]="nonretryable_http"; _write_state(root,manifest,ledger); return {"stopped":season,"event":event}
             try:
-                payload=json.loads(body.decode("utf-8")); semantic_audit=audit_shot_payload(payload,totals_for_season(Path(root),season)); summary=analyze_payload(payload,body,season,Path(root)); summary["semantic_audit"]=semantic_audit
+                payload=json.loads(body.decode("utf-8")); semantic_audit=audit_shot_payload(payload,totals_for_season(Path(root),season),policy=policy); summary=analyze_payload(payload,body,season,Path(root)); summary["semantic_audit"]=semantic_audit
             except Exception as exc:
                 _persist_attempt(root,season,body,event,quarantine=True); asset["status"]="quarantined"; event["result"]=f"validation:{type(exc).__name__}: {exc}"; _write_state(root,manifest,ledger); return {"stopped":season,"event":event}
             meta=_persist_attempt(root,season,body,event); asset.update({"status":"verified","cache":meta,"summary":summary}); event["result"]="verified"; _write_state(root,manifest,ledger)
@@ -335,3 +380,31 @@ def analyze(root):
             summaries[asset["season"]]=analyze_asset(raw,asset["season"],root)
         result={"version":"phase3a1.cache-only-feasibility.v1","seasons":summaries,"network":"prohibited","primary_classification":"prior-player shot-zone acquisition supported; Phase 3B feature construction ready"}
         result["deterministic_analysis_sha256"]=canonical_json_hash(result); return result
+
+def analyze_residual_window(root, *, policy):
+    """Replay verified raw bodies under the explicit residual policy, offline."""
+    policy=validate_reconciliation_policy(policy)
+    if policy != RESIDUAL_RECONCILIATION_POLICY: raise ValueError("residual-window replay requires phase3a1.residual-v1")
+    root=Path(root)
+    with network_prohibited():
+        phase3a.immutable_evidence(root)
+        manifest=load(root,"manifest"); seasons={}
+        for asset in manifest["assets"]:
+            if asset["status"] not in {"verified","verified_reviewed_promotion"}:
+                raise ValueError(f"asset not accepted under residual policy: {asset['season']}")
+            raw=root/asset["cache"]["body_path"]
+            body=raw.read_bytes(); payload=json.loads(body)
+            parsed=parse(payload)
+            audit=audit_shot_payload(payload,totals_for_season(root,asset["season"]),policy=policy)
+            expected_hash=asset["cache"].get("raw_body_hash",asset["cache"].get("raw_body_sha256"))
+            if raw_body_hash(body)!=expected_hash:
+                raise ValueError(f"raw cache hash mismatch: {asset['season']}")
+            seasons[asset["season"]]={
+                "raw_body_sha256":raw_body_hash(body),
+                "canonical_json_sha256":canonical_json_hash(payload),
+                "schema":parsed["result_set_headers"],
+                "semantic_audit":audit,
+            }
+        result={"version":"phase3a1.residual-window-replay.v1","network":"prohibited","reconciliation_policy_id":policy,"policy":"overall-minus-seven-zone nonnegative UNCLASSIFIED_FGM/FGA residual; no allocation to a zone","seasons":seasons,"primary_classification":"2013-14 through 2023-24 shot profiles acquired and verified; shot-enabled curation ready"}
+        result["deterministic_analysis_sha256"]=canonical_json_hash(result)
+        return result
