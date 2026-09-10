@@ -4,6 +4,12 @@
 
 This document is a provisional research contract for the Hanson Hoops Phase 0 pair-fit v2 experiment. It is not a claim that the final model has been selected, nor that interaction effects are validated.
 
+## Phase 3B curation contract
+
+Phase 3B fixes the modeling observation grain to `team × target season × canonical unordered player pair`, the unmodified target to target-season `NET_RATING`, the primary exposure floor to `POSS >= 150`, and a `POSS >= 100` sensitivity population. Possessions, target-period pair minutes/ratings/pace/statistics, identifiers, weights, and provenance are never predictors. Equal row weight is primary; square-root possessions and possessions capped at 300 are future sensitivity candidates only.
+
+Each slot uses the closest available player profile strictly before the target season, up to three years back. Missing slots are retained and marked. Future folds must impute training data only, apply the fitted imputer separately to both slots, construct order-invariant means/absolute differences and shot transforms afterward, then expose only those symmetric transforms to the estimator. Verified `phase3a1.residual-v1` shot counts, residuals, null indicators, attempt indicators, and coverage fields are required candidate inputs; the overlapping source Corner 3 aggregate is validation-only. The full specification is `PHASE3B_CURATION_FEATURE_SPEC.md`.
+
 The purpose of this work is to test whether a reproducible shared-court pair-season dataset can be built at a scale and with enough reliability to support a future supervised projection exercise.
 
 ## Observation unit
@@ -119,7 +125,9 @@ Validation must be time-ordered or rolling-origin, with 2025-26 preserved as the
 
 This document does not claim that the final model is valid or that interaction effects are predictable. The purpose of Phase 0 is feasibility and data-contract validation only.
 
-The current research status is: Phase 1A through Phase 1F are complete; Phase 2A/2A.1 established the historical canary; Phase 2B completed 2023-24, Phase 2C 2022-23, Phase 2D 2021-22, and Phase 2E completed the seven releases from 2020-21 through 2014-15. The complete raw training-target window has 46,938 one-to-one pair-season-team observations and retains every valid returned zero-possession row. Its final cache-only classification is `2014-15 through 2023-24 raw training window acquired with population caveats; curation planning ready`. Strict prior-season joins and approved schemas passed, but global pair-population exhaustiveness remains unproven. No final target, positive exposure threshold, recovered-only target value, materialization, feature set, missing-history policy, validation design, or model was selected or created. Predictive feasibility remains unverified.
+Historical pre-Phase-3 status: Phase 1A through Phase 1F and Phase 2A through 2E completed the 46,938-row returned raw window with population caveats; global pair-population exhaustiveness remains unproven. That earlier checkpoint did not select curation policy.
+
+Current Phase 3B status: pair `NET_RATING` is the unmodified target; `POSS >= 150` is the primary floor and `POSS >= 100` is the sensitivity floor; equal row weight is primary. The most-recent strict-prior player profile is selected within a three-year lookback, missing-history rows remain, prior shared-pair history is excluded, and imputation is deferred to training folds before symmetric transforms. Verified residual-v1 shot profiles are required for the primary candidate. Reproducible curated artifacts are materialized under the ignored root `curated/` directory. Modeling, feature selection based on target performance, and predictive evaluation have not started.
 
 ## Prior-player join audit (Phase 0F)
 
@@ -131,13 +139,13 @@ One live 2023-24 `LeagueDashPlayerStats` response (Base measure, Per100Possessio
 - Exposure-weighted diagnostic coverage under the Phase 1A convention: complete-prior pairs sum to 36,469.44 of 39,460.00 Base shared minutes (92.4%) and 77,640 of 84,005 Advanced possessions (92.4%); incomplete-prior pairs hold the remaining 2,990.56 Base minutes and 6,365 Advanced possessions. These are overlapping diagnostic sums recalculated from the cached pair tables, not unique team totals, and are not used as model features.
 - Observed `MIN` semantics under `Per100Possessions`: it is not season-total minutes; it is minutes reported on the same per-100-possession normalization as other rate fields, and happened to resemble typical per-game averages for this season's pace. It must not be used as the prior player's season-total eligibility or reliability measure. A later ingestion phase will need a validated `Totals`-per-mode response, or another trustworthy season-total-minutes field. Phase 0F establishes join coverage, not the final prior-player reliability contract.
 
-Missing-history policy: the uniform Phase 1 baseline policy below was exercised across the four-team pilot and remains subject to approval before modeling.
+Phase 3B approved modeling-input policy: for each player, select the most recent available profile strictly before the target season, with a maximum three-season lookback. Retain `complete`, `one_missing`, and `both_missing` observations; leave missing feature values unfilled during curation; and fit any future imputation only inside each chronological training fold. The strict complete-history subset is retained for later sensitivity analysis. This settles the availability and fold-safety boundary, not an imputation algorithm.
 
 This audit does not establish multi-team coverage, does not select a final feature set, and does not train or validate a model.
 
-## Uniform missing-history policy (Phase 1 baseline)
+## Historical Phase 1 missing-history baseline
 
-This baseline policy was applied unchanged in the Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`); it is still not a final modeling decision:
+This baseline policy was applied in the Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`). It is historical context superseded by the approved Phase 3B policy above:
 
 1. Preserve all pair observations in raw and curated datasets; no pair rows are dropped from storage.
 2. Add a categorical prior-history status per pair: `complete`, `one_missing`, or `both_missing`.

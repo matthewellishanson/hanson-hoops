@@ -1,7 +1,7 @@
 # Phase 0 research-only cache and raw-output exclusions
 cache/
 raw/
-curated/
+/curated/
 catalog/
 manifests/runs/
 fixtures/*.json

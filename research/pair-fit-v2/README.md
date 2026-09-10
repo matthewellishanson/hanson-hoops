@@ -4,6 +4,12 @@
 
 This folder contains the Phase 0 feasibility scaffold, Phase 1A evidence audit and Phase 1B architecture contracts for the Hanson Hoops pair-fit v2 experiment. This work is research-only and does not modify production frontend or backend behavior.
 
+## Phase 3B status
+
+Phase 3B defines and materializes the deterministic offline curation contract for the verified 2014-15 through 2023-24 returned pair population. The primary `POSS >= 150` table and the separately identifiable `POSS >= 100` sensitivity table are reproducible Git-ignored CSVs, not committed data. They retain all exposure-eligible missing-history rows, use only a closest prior profile within a three-season lookback, preserve verified residual-v1 shot profiles, and expose only a documented future symmetric feature contract. No imputation, scaling, feature screening, model fit, tuning, evaluation, or ablation was performed. See `PHASE3B_CURATION_FEATURE_SPEC.md`.
+
+The correction pass keeps player GP, total minutes, and overall FGA for reliability/audit use but removes their pair transforms from the primary estimator contract. It also defines null-safe traded-history count and the seven-component overall-FGA shot-distribution L1 feature, and makes manifest categories disjoint.
+
 ## Phase 2E status
 
 Phase 2E completed the seven separately authorized 62-asset raw releases from 2020-21/2019-20 through 2014-15/2013-14: 434 verified assets and 31,181 one-to-one pair-season-team observations, including 93 preserved zero-possession rows. Together with Phases 2B-2D, the 2014-15 through 2023-24 training-target window contains 46,938 raw observations. The final cache-only classification is `2014-15 through 2023-24 raw training window acquired with population caveats; curation planning ready`; its deterministic analysis SHA-256 is `d57840f80172df49ea7350520fbf1961499c6f558c70c40ced2bab38c7b5379f`.
@@ -128,5 +134,5 @@ python -c "import sys; sys.path.insert(0, r'.\src'); from pair_fit_v2.schema imp
 - Phase 1C operational state is Git-ignored and replayable. Its original 52-attempt authorization plus the single asset-specific continuation are fully consumed; no further live request is authorized.
 - Phase 1D diagnostic state is separately Git-ignored and replayable. Charlotte's full-season returned pair population is proven non-exhaustive; do not treat the 5,297 returned observations as an exhaustive league-wide population without a defensible recovery method or explicit selection-bias limitation.
 - Phase 1E diagnostic state is also separately Git-ignored and replayable. Charlotte's two-window union recovers all 250 full-season keys plus seven omitted keys and exactly reproduces supported additive totals, but official defensive/net ratings are not yet validated for reconstruction. Do not average rate fields, treat the 257-key union as globally exhaustive, or use its target-season exposure as a predictive player-quality feature.
-- Phase 1F separates direct target validity from reconstruction and reliability. Direct full-season standard `NET_RATING` remains a supported observed target candidate; available windows cannot safely reconstruct defensive/net rates, and no final target or possession threshold is selected.
+- Historical pre-Phase-3 Phase 1F status: it separated direct target validity from reconstruction and reliability. Direct full-season standard `NET_RATING` was a supported observed target candidate; available windows could not safely reconstruct defensive/net rates, and no final target or possession threshold had then been selected.
 - Keep `group_quantity=2` for `pair_observations`. It is part of raw request identity, so pair/trio/quartet/five-player requests cannot collide. Higher-order research requires a separate versioned group-observation contract; aggregating pair predictions across a larger selection would not be a directly trained lineup model.
