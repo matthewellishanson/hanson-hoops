@@ -189,6 +189,13 @@ Future heliocentrism sources use the same registry. Their source, formula, denom
 
 ## Notes
 
+## Phase 3C modeling artifacts
+
+- `modeling/phase3c/predictions.csv`: audit identifiers, actual target, prediction, variant, outer fold, history status, pandemic flag and exact-250 flag for each out-of-season prediction.
+- `metrics.csv`: fold, aggregate, equal-season macro, team-season macro and requested subgroup metrics. Pair rows are not treated as independent samples.
+- `imputation_diagnostics.csv`: fold-local unique-profile slot medians and any fold-local symmetric-feature median; validation values do not affect either.
+- `calibration.csv`, `ridge_alpha_selection.csv`, `feature_lists.json`, `fold_definitions.json`, `experiment_configuration.json`, `artifact_hashes.json`, and `summary.json`: deterministic audit artifacts. No deployment model is serialized.
+
 - This dictionary is provisional and should evolve with the final feature contract.
 - Phase 0 does not claim that the final feature set is correct or complete.
 - The pair identity is unordered and canonicalized to avoid double-counting A+B and B+A.

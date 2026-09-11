@@ -2,6 +2,7 @@
 cache/
 raw/
 /curated/
+/modeling/phase3c/
 catalog/
 manifests/runs/
 fixtures/*.json

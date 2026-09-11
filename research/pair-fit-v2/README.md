@@ -10,6 +10,10 @@ Phase 3B defines and materializes the deterministic offline curation contract fo
 
 The correction pass keeps player GP, total minutes, and overall FGA for reliability/audit use but removes their pair transforms from the primary estimator contract. It also defines null-safe traded-history count and the seven-component overall-FGA shot-distribution L1 feature, and makes manifest categories disjoint.
 
+## Phase 3C status
+
+Phase 3C implements an offline deterministic historical baseline runner over only the Phase 3B `POSS >= 150` population. It uses six expanding folds through 2023-24, training-only unique-profile imputation, post-imputation symmetric transforms, training-only Ridge scaling/tuning, and fixed-seed histogram gradient boosting. Its five diagnostic variants include predeclared shot/no-shot ablations, but it does not select a production model or access 2024-25/2025-26. Reproducible ignored outputs are under `modeling/phase3c/`; see `PHASE3C_BASELINE_MODELING_REPORT.md`.
+
 ## Phase 2E status
 
 Phase 2E completed the seven separately authorized 62-asset raw releases from 2020-21/2019-20 through 2014-15/2013-14: 434 verified assets and 31,181 one-to-one pair-season-team observations, including 93 preserved zero-possession rows. Together with Phases 2B-2D, the 2014-15 through 2023-24 training-target window contains 46,938 raw observations. The final cache-only classification is `2014-15 through 2023-24 raw training window acquired with population caveats; curation planning ready`; its deterministic analysis SHA-256 is `d57840f80172df49ea7350520fbf1961499c6f558c70c40ced2bab38c7b5379f`.

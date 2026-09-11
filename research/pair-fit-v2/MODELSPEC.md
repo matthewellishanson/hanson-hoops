@@ -141,6 +141,10 @@ One live 2023-24 `LeagueDashPlayerStats` response (Base measure, Per100Possessio
 
 Phase 3B approved modeling-input policy: for each player, select the most recent available profile strictly before the target season, with a maximum three-season lookback. Retain `complete`, `one_missing`, and `both_missing` observations; leave missing feature values unfilled during curation; and fit any future imputation only inside each chronological training fold. The strict complete-history subset is retained for later sensitivity analysis. This settles the availability and fold-safety boundary, not an imputation algorithm.
 
+## Phase 3C baseline-validation contract
+
+Phase 3C is predictive research, not a production-model selection or causal analysis. It uses only targets from 2014-15 through 2023-24 in six expanding outer folds. Each fold learns slot medians from unique observed `(player_id, selected_profile_season)` training profiles, applies one per-feature median identically to both player slots, then builds the 52 approved symmetric features. After slot-level imputation and symmetric feature construction, each applicable training partition learns an outer-training symmetric-feature median; validation values never influence it. It handles remaining undefined symmetric values, including shot-L1 values caused by missing or nonpositive overall FGA, and supplies the same finite-input policy to both Ridge and HGB for a consistent comparison. Scaling, Ridge alpha selection, and every other learned component are training-only. The 2024-25 and 2025-26 outcomes remain prohibited.
+
 This audit does not establish multi-team coverage, does not select a final feature set, and does not train or validate a model.
 
 ## Historical Phase 1 missing-history baseline
