@@ -189,6 +189,21 @@ Future heliocentrism sources use the same registry. Their source, formula, denom
 
 ## Notes
 
+## Phase 3D refinement fields
+
+- `shot_efficiency_[zone]_smoothed_pct`: fold-safe player-slot efficiency for restricted area, non-restricted paint, mid-range, combined corners, above-the-break three, backcourt, or unclassified residual. It equals `(FGM + k * training_zone_mean) / (FGA + k)`, where the prior uses only unique valid player-season profiles in the applicable chronological training partition and `k` is selected only from 25, 50, and 100. Unclassified attempts remain separate.
+- `pair_mean.shot_efficiency_[zone]_smoothed_pct`, `pair_absolute_difference.shot_efficiency_[zone]_smoothed_pct`: order-invariant pair mean and absolute difference, constructed only after fold-local player-slot imputation.
+- `missing_history_group`: diagnostic-only `complete_player_history`, `one_player_missing`, or `both_players_missing`; never an estimator feature.
+- `second_stage_symmetric_imputation_required`: row diagnostic indicating that at least one already-symmetric feature was undefined before its training-only median fill.
+- `shot_l1_undefined_reason`, `shot_l1_undefined_missing_or_nonpositive_overall_fga`: diagnostic reason and requested boolean for an undefined distribution L1 value; not estimator inputs.
+- `shot_efficiency_any_undefined_before_slot_imputation`, `shot_efficiency_undefined_reasons`: diagnostic flag and per-slot/per-zone reason map preserving missing FGM/FGA, zero attempts, negative/nonpositive attempts, and invalid-count states before slot imputation.
+- `exact_250_membership`, `pandemic_affected`: diagnostic-only context flags preserved on predictions and excluded from estimator matrices.
+- `weight_policy`: training-only `equal`, `sqrt_possessions`, or `capped_linear_300`; weights are normalized to mean one within each applicable training partition and never alter primary validation scoring.
+- `exact_250_policy`: training-only `include`, `downweight_0_5`, or `exclude`. Flagged validation rows are never removed.
+- `effective_sample_size`, `top_decile_weight_share`, `weight_share`: weight-distribution and season/team-season concentration diagnostics; not model inputs or reported-task weights.
+- `candidate_id`, `stage`, `advanced_from_stage`, `predeclared_plan_status`: deterministic Phase 3D decision-trail fields identifying the bounded A/B/C experiment and whether a candidate advanced under the frozen rule.
+- `macro_season_mae`: primary selection statistic, computed as the unweighted mean of six unweighted validation-season MAEs. Pooled and macro RMSE/R²/bias/Spearman/dispersion fields remain descriptive secondary metrics.
+
 ## Phase 3C modeling artifacts
 
 - `modeling/phase3c/predictions.csv`: audit identifiers, actual target, prediction, variant, outer fold, history status, pandemic flag and exact-250 flag for each out-of-season prediction.
