@@ -4,6 +4,7 @@ raw/
 /curated/
 /modeling/phase3c/
 /modeling/phase3e-r0/
+/modeling/phase3e-r1/
 catalog/
 manifests/runs/
 fixtures/*.json
