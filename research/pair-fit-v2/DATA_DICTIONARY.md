@@ -2,6 +2,17 @@
 
 This data dictionary covers the research-only Phase 0 scaffold, bounded Phase 1A audit and Phase 1B architecture contract. It is intentionally provisional and subject to revision.
 
+## Phase 3E-R2 holdout artifacts
+
+- `holdout_staging.csv` is the curated 2024-25 row-preserving audit table for the 28 retained team-seasons at `POSS >= 150`. It contains the unevaluated target, pair exposure, canonical IDs, source provenance, prior-profile values, missing-history classifications, selected profile seasons, and lookback ages. It is not an estimator matrix.
+- `holdout_row_index.csv` preserves the row-order join between the pure estimator matrix and identifiers, the unevaluated target, exposure/reliability fields, history status, selected source seasons/ages, and the exact-250 audit flag.
+- `holdout_estimator_matrix.csv` has exactly the frozen 45 ordered, symmetric, no-shot predictors. It has no identifier, target, possession, minute, games-played, player-slot, weight, usage, shot, or audit/provenance column.
+- `preprocessing_state.json` records player-slot medians, second-stage symmetric-feature medians, feature order, and scaling values learned only from the 2014-15 through 2023-24 `POSS >= 150` training population under the frozen Phase 3D procedure. It is preprocessing state, not a serialized estimator.
+- `population_diagnostics.json` records all 30 source team-seasons, the Charlotte and Philadelphia whole-team exclusions, Base/Advanced reconciliation, row-quality counts, population/exposure shares, missing-history coverage, source-season ages, second-stage requirements, and swap-invariance results.
+- `input_fingerprints.json` records every referenced cache file hash and the before/after immutability result. `artifact_hashes.json` and `summary.json` provide deterministic output hashes and the construction classification.
+
+The three CSVs and four JSON artifacts above are generated under the Git-ignored `curated/phase3e-r2/` directory. No value learned from a 2024-25 predictor or target is stored as preprocessing state.
+
 ## Pair identity fields
 
 - `pair_key`: canonical unordered pair key, typically represented as a tuple of two player IDs sorted to enforce A+B = B+A.
