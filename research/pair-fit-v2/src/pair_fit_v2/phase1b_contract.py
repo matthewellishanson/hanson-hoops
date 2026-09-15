@@ -1,4 +1,9 @@
-"""Pure Phase 1B architecture contracts; no network, Parquet, or DuckDB I/O."""
+"""Pure Phase 1B architecture contracts; no network, Parquet, or DuckDB I/O.
+
+The pair-key helpers in this module preserve the historical Phase 1B
+lexicographic raw-acquisition/cache-replay convention.  They are legacy
+identity helpers, not canonicalizers for Phase 3B+ curated or model keys.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +18,8 @@ from pair_fit_v2.schema import canonical_pair_key
 
 
 CONTRACT_VERSION = "phase1b.contract.v1"
+LEGACY_PAIR_KEY_SCOPE = "phase1b_raw_acquisition_cache_identity_and_replay_only"
+LEGACY_PAIR_ORDERING = "lexicographic_normalized_positive_decimal_strings"
 MANIFEST_KIND = "pair-fit-v2-season-ingestion"
 REQUIRED_PAIR_MEASURES = ("Base", "Advanced")
 REQUIRED_RESULT_SETS = ("Overall", "Lineups")
@@ -79,7 +86,11 @@ def team_season_key(
 
 
 def stable_pair_key(player_a_id: Any, player_b_id: Any) -> tuple[str, str]:
-    """Return the existing lexicographically ordered canonical player pair."""
+    """Return the legacy Phase 1B lexicographic raw/cache pair identity.
+
+    Preserve this behavior for historical replay.  Phase 3B and later curated
+    or model observation keys must use numeric positive-ID ordering instead.
+    """
     player_a = normalize_nba_id(player_a_id, "player_a_id")
     player_b = normalize_nba_id(player_b_id, "player_b_id")
     if player_a == player_b:
@@ -95,7 +106,7 @@ def observation_key(
     season_type: Any = "Regular Season",
     league_id: Any = "00",
 ) -> tuple[str, str, str, str, str, str]:
-    """Return the full stable pair observation identity."""
+    """Return the legacy Phase 1B raw/cache observation identity."""
     return (
         *team_season_key(season, team_id, season_type, league_id),
         *stable_pair_key(player_a_id, player_b_id),

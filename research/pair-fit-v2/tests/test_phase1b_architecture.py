@@ -10,6 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from pair_fit_v2.phase1b_contract import (
     CONTRACT_VERSION,
+    LEGACY_PAIR_KEY_SCOPE,
+    LEGACY_PAIR_ORDERING,
     build_season_manifest,
     observation_key,
     possession_target_eligibility,
@@ -140,6 +142,20 @@ def test_stable_keys_make_league_season_type_team_and_unordered_pair_explicit():
         "201939",
         "203110",
     )
+
+
+def test_legacy_phase1b_pair_ordering_behavior_and_scope_remain_frozen():
+    assert LEGACY_PAIR_KEY_SCOPE == "phase1b_raw_acquisition_cache_identity_and_replay_only"
+    assert LEGACY_PAIR_ORDERING == "lexicographic_normalized_positive_decimal_strings"
+    cases = [
+        (("9", "10"), ("10", "9")),
+        (("10", "9"), ("10", "9")),
+        (("0009", "10"), ("10", "9")),
+        (("203110", "201939"), ("201939", "203110")),
+    ]
+    for inputs, expected in cases:
+        assert stable_pair_key(*inputs) == expected
+        assert stable_pair_key(*reversed(inputs)) == expected
 
 
 def test_pair_key_rejects_same_player():

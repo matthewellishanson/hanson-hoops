@@ -20,17 +20,18 @@ No value learned from a 2024-25 predictor or target is stored as preprocessing s
 
 ## Pair identity fields
 
-- `pair_key`: canonical unordered pair key, typically represented as a tuple of two player IDs sorted to enforce A+B = B+A.
+- `legacy_phase1b_raw_pair_key`: historical Phase 1B raw-acquisition/cache-identity tuple of two normalized positive decimal-string player IDs ordered lexicographically. It remains frozen only for historical identity and replay; raw evidence is not renamed, rewritten, migrated, or rehashed.
+- `model_pair_key`: Phase 3B and later curated/model tuple of two normalized positive player IDs ordered numerically to enforce A+B = B+A. Modeling code must not use the legacy Phase 1B lexicographic helper.
 - `league_id`: league namespace included in every Phase 1B season and observation key; NBA is currently `00`.
 - `target_season`: normalized NBA season label in `YYYY-YY` form.
 - `season_type`: normalized lowercase season-type slug, such as `regular-season`.
 - `team_id`: positive decimal-string team ID normalized without leading zeroes.
-- `player_1_id`: lexicographically first canonical player ID in a pair record.
-- `player_2_id`: lexicographically second canonical player ID in a pair record.
+- `player_1_id`: numerically smaller canonical player ID in a pair record.
+- `player_2_id`: numerically larger canonical player ID in a pair record. Canonical ordering requires `player_1_id < player_2_id` under numeric comparison.
 - `GROUP_ID`: raw lineup/group identifier returned by the NBA endpoint.
 - `GROUP_NAME`: raw lineup/group label returned by the NBA endpoint.
 
-The stable `observation_key` is (`league_id`, `target_season`, `season_type`, `team_id`, `player_1_id`, `player_2_id`). `GROUP_ID`, names and source row order are never key components.
+The active curated/model `observation_key` is (`league_id`, `target_season`, `season_type`, `team_id`, `player_1_id`, `player_2_id`) under numeric player-ID ordering. Historical Phase 1B raw/cache observation identities retain their lexicographic convention solely within that legacy namespace. `GROUP_ID`, names and source row order are never key components.
 
 ## Target fields
 

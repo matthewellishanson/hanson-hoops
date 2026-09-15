@@ -112,12 +112,14 @@ Keys are stored as typed columns. Delimited display strings or hashes are conven
 | --- | --- | --- |
 | `season_key` | `league_id`, `target_season`, `season_type` | Season label is `YYYY-YY`; season type is a normalized lowercase slug. |
 | `team_season_key` | `season_key`, `team_id` | NBA IDs are positive decimal strings normalized without leading zeroes. |
-| `pair_key` | `player_1_id`, `player_2_id` | Two distinct IDs sorted with the existing lexicographic canonical rule; source order and names are irrelevant. |
-| `observation_key` | `team_season_key`, `pair_key` | Primary key of `pair_observations`. Fixed Phase 1A league/season-type context is explicit in Phase 1B. |
+| `pair_key` | `player_1_id`, `player_2_id` | Historical Phase 1B raw-acquisition/cache identity: two distinct normalized decimal-string IDs sorted lexicographically; source order and names are irrelevant. |
+| `observation_key` | `team_season_key`, `pair_key` | Historical Phase 1B raw/cache observation identity. Fixed Phase 1A league/season-type context is explicit in Phase 1B. |
 | `raw_asset_id` | contract version + endpoint + every normalized request parameter | SHA-256-derived logical ID; not a response-content hash. |
 | `player_feature_key` | `feature_source_id`, `feature_source_version`, `feature_season`, `player_id` | Source/version prevents accidental collision between different definitions. |
 
 `GROUP_ID` and `GROUP_NAME` remain raw audit fields and are never stable observation keys. The same pair on two teams or in two season types remains two observations.
+
+The lexicographic `pair_key` rule above is a legacy Phase 1B raw-acquisition, cache-identity, and deterministic-replay convention. It remains frozen so existing raw evidence, identifiers, hashes, and replays do not change. It is superseded for Phase 3B and later curated/model observation keys, which normalize positive player IDs and order them numerically so `player_1_id < player_2_id` under numeric comparison. Raw historical evidence is not renamed, rewritten, migrated, or rehashed. Phase 3B+ modeling code must not import or apply the Phase 1B lexicographic pair canonicalizer.
 
 `group_quantity` is part of raw request identity and prevents pair, trio, quartet and five-player cache collisions. The current `pair_observations` contract remains strictly two-player grain with `group_quantity=2`. Future higher-order lineup research must use a new versioned group-observation contract containing `group_size` and an ordered canonical collection of player IDs. A future interface may aggregate pair-model predictions across a larger selection, but that is not equivalent to a model trained directly on higher-order lineups. Generalized group ingestion and modeling are not implemented in this pass.
 
