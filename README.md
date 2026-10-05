@@ -50,6 +50,18 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 The API is then available at <http://127.0.0.1:8000>. Do not use the old project-root command `uvicorn backend.app.main:app`; it does not match Render's module layout.
 
+Application startup verifies and loads the audited Pair Fit v2 package from
+`research/pair-fit-v2/production/pair-fit-v2.0.0/`. Keep the full repository
+layout intact when running locally. The versioned endpoint is:
+
+```text
+GET /fit/v2/pair/{player_a_id}/{player_b_id}?target_season=2026-27
+```
+
+It returns projected shared-court team `NET_RATING` in points per 100
+possessions. The legacy `/fit/pair/{player_a}/{player_b}` endpoint remains
+available temporarily for rollback.
+
 Run backend tests from the repository root:
 
 ```powershell

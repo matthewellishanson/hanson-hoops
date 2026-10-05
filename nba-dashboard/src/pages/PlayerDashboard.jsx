@@ -1,7 +1,7 @@
 import React from 'react';
 import PlayerCard from '../components/PlayerCard.jsx';
 import PlayerSelector from '../components/PlayerSelector.jsx';
-import PlayerFitPanel from '../components/PlayerFitPanel.jsx';
+import PairFitSummaryCard from '../components/PairFitSummaryCard.jsx';
 
 // helper to chunk into rows of 2
 function chunk2(arr) {
@@ -33,8 +33,7 @@ export default function PlayerDashboard({
 
   return (
     <div className="container py-4 min-vh-100" style={{ maxWidth: 1280 }}>
-      {/* Pair-fit panel owns the active pair selection; cardId keeps it stable across card edits/removals. */}
-      <PlayerFitPanel selectedPlayers={selectedPlayers} />
+      <PairFitSummaryCard selectedPlayers={selectedPlayers} />
 
       {/* Loop each row (two cards per row) */}
       {rows.map((row, rIndex) => {

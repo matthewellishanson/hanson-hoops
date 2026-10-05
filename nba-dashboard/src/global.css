@@ -259,3 +259,50 @@ a:hover          { color: var(--primary-700); }
   border: 2px solid #ffffff;
   box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.45);
 }
+
+/* Compact Pair Fit v2 summary; intentionally secondary to comparison cards. */
+.pair-fit-summary {
+  border-left: 4px solid var(--app-primary);
+}
+
+.pair-fit-summary__intro {
+  min-width: 12rem;
+}
+
+.pair-fit-summary__selector {
+  flex: 0 1 34rem;
+}
+
+.pair-fit-summary__result {
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.8fr) minmax(16rem, 1.2fr);
+  gap: 1rem;
+  align-items: center;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--bs-border-color);
+}
+
+.pair-fit-summary__value {
+  color: var(--app-primary);
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.pair-fit-summary__details summary {
+  color: var(--bs-secondary-color);
+  cursor: pointer;
+  font-size: 0.875rem;
+  width: fit-content;
+}
+
+@media (max-width: 767.98px) {
+  .pair-fit-summary__result {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .pair-fit-summary__selector {
+    width: 100%;
+  }
+}
