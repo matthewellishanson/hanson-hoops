@@ -1,0 +1,19 @@
+{
+  "coverage": "all non-manifest regular files in this directory; nonrecursive",
+  "files": {
+    "metadata.json": {
+      "bytes": 2547,
+      "sha256": "ebfb87d38266dcc6099e8ea7019c60109aa39058ddea737ab89e18cd61eb92e3"
+    },
+    "model.json": {
+      "bytes": 18415,
+      "sha256": "55a1386abb1abaadd78b29e8addafe1912f419c01586d239c81325ffc3f69302"
+    },
+    "player_profiles.csv": {
+      "bytes": 3364728,
+      "sha256": "eb4534668fd3ddf57477e2989885d2dff5753506393463a4bedc6a31ad8c6265"
+    }
+  },
+  "model_version": "pair-fit-v2.0.0",
+  "serialization_version": 1
+}
