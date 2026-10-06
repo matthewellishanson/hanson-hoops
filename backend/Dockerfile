@@ -1,10 +1,10 @@
 # backend/Dockerfile
 FROM python:3.12-slim
 
-WORKDIR /app
+WORKDIR /app/backend
 
 # Copy requirements first for layer caching
-COPY backend/requirements.txt requirements.txt
+COPY backend/requirements.txt ./requirements.txt
 
 # ---- Prevent proxy from interfering with pip during build ----
 ENV HTTP_PROXY= \
@@ -19,8 +19,14 @@ ENV HTTP_PROXY= \
 RUN python -m pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir --prefer-binary -r requirements.txt
 
-# Copy backend source
-COPY backend /app
+# Preserve the checkout-relative layout used by the verified Pair Fit loader.
+COPY backend /app/backend
+COPY research/pair-fit-v2/src/pair_fit_v2/__init__.py /app/research/pair-fit-v2/src/pair_fit_v2/__init__.py
+COPY research/pair-fit-v2/src/pair_fit_v2/inference.py /app/research/pair-fit-v2/src/pair_fit_v2/inference.py
+COPY research/pair-fit-v2/production/pair-fit-v2.0.0/model.json /app/research/pair-fit-v2/production/pair-fit-v2.0.0/model.json
+COPY research/pair-fit-v2/production/pair-fit-v2.0.0/artifact_manifest.json /app/research/pair-fit-v2/production/pair-fit-v2.0.0/artifact_manifest.json
+COPY research/pair-fit-v2/production/pair-fit-v2.0.0/metadata.json /app/research/pair-fit-v2/production/pair-fit-v2.0.0/metadata.json
+COPY research/pair-fit-v2/production/pair-fit-v2.0.0/player_profiles.csv /app/research/pair-fit-v2/production/pair-fit-v2.0.0/player_profiles.csv
 
 ENV PYTHONUNBUFFERED=1 \
     PORT=8000

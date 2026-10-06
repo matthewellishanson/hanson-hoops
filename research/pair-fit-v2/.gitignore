@@ -1,0 +1,49 @@
+# Phase 0 research-only cache and raw-output exclusions
+cache/
+raw/
+/curated/
+/planning/phase3f-r1s/
+/planning/phase3f-r2a/
+/cache/phase3f-r2a/non-protected-prior-profiles/
+/planning/phase3f-r2b/
+/planning/phase3f-r2b.1/
+/cache/phase3f-r2b/protected-final-target/
+/planning/phase3f-r2b.2/
+/planning/phase3f-r2b.2.1/
+/cache/phase3f-r2b.2/protected-final-target/
+/planning/phase3f-r2c/
+/planning/phase3f-r2c.1/
+/planning/phase3f-r2d/
+/planning/phase3f-r2d.1/
+/modeling/phase3c/
+/modeling/phase3e-r0/
+/modeling/phase3e-r1/
+/modeling/phase3e-r3/
+/modeling/phase3e-r4/
+catalog/
+manifests/runs/
+fixtures/*.json
+fixtures/*.csv
+*.parquet
+*.feather
+.pytest_cache/
+.pytest_tmp/
+/.t/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Coverage output
+.coverage
+coverage.xml
+htmlcov/
+
+# Future local analytical stores and model artifacts
+*.duckdb
+*.duckdb.wal
+*.sqlite
+*.sqlite3
+*.db
+*.joblib
+*.pkl

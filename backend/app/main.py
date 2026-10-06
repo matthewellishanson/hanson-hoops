@@ -12,6 +12,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.services.nba_http import NBAUpstreamError, configure_nba_http, log_safe_exception
+from app.services.pair_fit_v2_service import get_pair_fit_predictor
 from app.utils.seasons import current_nba_season, format_season
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
@@ -23,12 +24,17 @@ configure_nba_http()
 
 from app.api.endpoints import rookies  # noqa: E402
 from app.api.endpoints.fit import router as fit_router  # noqa: E402
+from app.api.endpoints.pair_fit_v2 import router as pair_fit_v2_router  # noqa: E402
 from app.api.endpoints.players import router as players_router  # noqa: E402
 from app.api.endpoints.teams import _league_shots_for_season, router as teams_router  # noqa: E402
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Verify and load the audited Pair Fit v2 package once per API worker. Any
+    # missing or changed artifact fails startup before predictions can be served.
+    get_pair_fit_predictor()
+
     # League-wide shot warming performs a large live request once per worker. It is
     # opt-in so Render cold starts do not compete with user-facing requests.
     if os.getenv("WARM_LEAGUE_SHOTS_ON_STARTUP", "0") == "1":
@@ -163,4 +169,5 @@ def health():
 app.include_router(players_router)
 app.include_router(teams_router)
 app.include_router(fit_router)
+app.include_router(pair_fit_v2_router)
 app.include_router(rookies.router)

@@ -174,3 +174,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+/.t/
+/research/pair-fit-v2/modeling/phase3d/
+/research/pair-fit-v2/modeling/phase3e-r4-1-reconciliation/
+/research/pair-fit-v2/modeling/phase3e-r4-2-reconciliation/

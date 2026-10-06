@@ -1,0 +1,76 @@
+{
+  "acquisition": {
+    "per100_totals_id_set_equal": true,
+    "player_count": 582,
+    "request_count": 2,
+    "season": "2025-26"
+  },
+  "fit": {
+    "alpha": 3000.0,
+    "estimator": "Ridge",
+    "fit_count": 1,
+    "weights": "equal"
+  },
+  "model_version": "pair-fit-v2.0.0",
+  "parity": {
+    "maximum_absolute_error": 0.0,
+    "passed": true,
+    "predeclared_absolute_tolerance": 1e-10,
+    "rows": 32512
+  },
+  "population": {
+    "authenticated_input_sha256": {
+      "curated/phase3f-r0/expanded_feature_manifest.json": "93693a520151387f0c9fb514ada7324639387a7ae60bae5bba9d2a607a5beb14",
+      "curated/phase3f-r0/expanded_training_estimator_matrix_unscaled.csv": "a8a2b08daa3c56ccda78d34f77c2a29b7ef7c9e00835e7ab6ac77412ec6f8588",
+      "curated/phase3f-r0/expanded_training_row_index.csv": "3062b1524e7599dcab32ae1dc419040e7f16f6730308e3a88b18c71293d4c427",
+      "curated/phase3f-r0/expanded_training_staging.csv": "3fced86922b533b0da2b42748d6c0b8afddef57b1281fe14880b11a446df21b6",
+      "curated/phase3f-r3/estimator_feature_manifest.json": "b2ef6f25b18e1b5522c2624c1b0532648ac961c4558114fc8d94e437351564a6",
+      "curated/phase3f-r3/final_test_row_index.csv": "b0c2204be4dd67d504cde0e720f3453160416a3e9f838aad6e45273d197225f9",
+      "curated/phase3f-r3/final_test_staging.csv": "c7994aceebedf4093e97d3b0b41d28ab69abaebb38f6486d07c82a5125635f06",
+      "curated/phase3f-r3/final_test_target_vector.csv": "a258c02992f2006ee083d39b79d328f775d8923157d80f7bed2c73955d276198"
+    },
+    "rows": 32512,
+    "season_counts": {
+      "2014-15": 2666,
+      "2015-16": 2491,
+      "2016-17": 2507,
+      "2017-18": 2586,
+      "2018-19": 2797,
+      "2019-20": 2548,
+      "2020-21": 2798,
+      "2021-22": 3002,
+      "2022-23": 2858,
+      "2023-24": 2748,
+      "2024-25": 2700,
+      "2025-26": 2811
+    },
+    "training_identity_sha256": "460c0fed79b760319e28b7fc0411383eef42232481974ff067d7af2cbdfbee8e",
+    "unique_observation_keys": 32512
+  },
+  "preprocessing": {
+    "feature_count": 45,
+    "learned_from_rows": 32512,
+    "scaled_exactly_once": true,
+    "slot_swap_mismatches": 0,
+    "slot_swap_rows_checked": 32512
+  },
+  "profiles": {
+    "rows": 6942,
+    "season_counts": {
+      "2013-14": 482,
+      "2014-15": 492,
+      "2015-16": 476,
+      "2016-17": 486,
+      "2017-18": 540,
+      "2018-19": 530,
+      "2019-20": 529,
+      "2020-21": 540,
+      "2021-22": 605,
+      "2022-23": 539,
+      "2023-24": 572,
+      "2024-25": 569,
+      "2025-26": 582
+    }
+  },
+  "version": "phase4a.production-package.v1"
+}

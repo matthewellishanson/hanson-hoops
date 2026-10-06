@@ -1,0 +1,167 @@
+# Pair-fit v2 provisional model contract
+
+## Scope
+
+This document is a provisional research contract for the Hanson Hoops Phase 0 pair-fit v2 experiment. It is not a claim that the final model has been selected, nor that interaction effects are validated.
+
+## Phase 3B curation contract
+
+Phase 3B fixes the modeling observation grain to `team × target season × canonical unordered player pair`, the unmodified target to target-season `NET_RATING`, the primary exposure floor to `POSS >= 150`, and a `POSS >= 100` sensitivity population. Possessions, target-period pair minutes/ratings/pace/statistics, identifiers, weights, and provenance are never predictors. Equal row weight is primary; square-root possessions and possessions capped at 300 are future sensitivity candidates only.
+
+Each slot uses the closest available player profile strictly before the target season, up to three years back. Missing slots are retained and marked. Future folds must impute training data only, apply the fitted imputer separately to both slots, construct order-invariant means/absolute differences and shot transforms afterward, then expose only those symmetric transforms to the estimator. Verified `phase3a1.residual-v1` shot counts, residuals, null indicators, attempt indicators, and coverage fields are required candidate inputs; the overlapping source Corner 3 aggregate is validation-only. The full specification is `PHASE3B_CURATION_FEATURE_SPEC.md`.
+
+The purpose of this work is to test whether a reproducible shared-court pair-season dataset can be built at a scale and with enough reliability to support a future supervised projection exercise.
+
+## Observation unit
+
+The observation unit is one unordered player-pair/team/season observation, stored using canonical player IDs so A+B and B+A cannot become separate records.
+
+Canonical pair identity should satisfy:
+
+- player IDs are stored as stable integers or canonical strings
+- the pair key is sorted or otherwise normalized before record creation
+- duplicate pair rows are rejected or flagged explicitly during validation
+- the pair identity is independent of player ordering in the source data
+
+The cache-audit schema fingerprint is separate from row volume. It consists of the result-set name, ordered column list, and column count. Row count is data volume, not schema identity.
+
+Phase 1B makes the previously fixed request context explicit. The full observation key is (`league_id`, `target_season`, `season_type`, `team_id`, canonical `player_1_id`, canonical `player_2_id`). Raw `GROUP_ID`, player names and row order are audit data, not join identity.
+
+## Phase 1B ingestion architecture contract
+
+The approved design direction is immutable raw JSON → row-preserving curated Parquet → reproducible DuckDB views. This is an architecture contract only; Phase 1B does not materialize Parquet or DuckDB.
+
+- Raw assets are identified by endpoint plus every normalized request parameter and tracked in a versioned resumable manifest. The release gate recomputes the normalized manifest ID, verifies each asset ID against its embedded identity, and independently verifies every embedded identity against the manifest's approved team/measure request.
+- Every acquisition event, cache serialization, schema fingerprint and downstream output has separate provenance.
+- Required `Overall` and `Lineups` fingerprints must be nonempty, unique, internally valid and recomputed as identical to the approved measure-specific schema contract. A stored `accepted` label is not sufficient; every non-identical schema fingerprint is quarantined for explicit review and no drift is silently coerced.
+- Base and Advanced use a full outer reconciliation on the full observation key so unmatched rows remain auditable.
+- The all-rows curated table retains target-ineligible and incomplete-history observations with explicit reasons/statuses.
+- DuckDB is a rebuildable catalog over Parquet, not the sole durable copy.
+- Prior-player features enter through a versioned, strict-pre-target-season source registry that can later add heliocentrism sources without changing pair identity.
+
+The complete design and 30-team release gates are in `PHASE1B_ARCHITECTURE.md`.
+
+`group_quantity` is part of raw request identity and is fixed at `2` for the strictly two-player `pair_observations` grain, preventing collisions with trio, quartet or five-player assets. Future higher-order work requires a new versioned group-observation contract with `group_size` and an ordered canonical player-ID collection. Aggregating pair-model predictions across a larger selection is a possible future interface behavior, but it is not equivalent to directly training a lineup model; neither path is implemented in this pass.
+
+## Target definition
+
+The observed 2024-25 TeamDashLineups Advanced response directly provides team offensive rating (`OFF_RATING`) and defensive rating (`DEF_RATING`) while both players share the court. These rates describe the team's shared-court performance with the pair present, including the other three teammates, opponents, and context. They are not individual player ratings, pair-only box-score rates, or on/off differentials.
+
+The provisional primary rate target is `NET_RATING`, with the expected relationship:
+
+- `NET_RATING` = `OFF_RATING` - `DEF_RATING`, subject to displayed rounding
+
+Phase 1F confirms this direct identity within `0.1` for all 5,297 Phase 1C rows. Direct full-season semantic/internal validity is separate from cross-window recomposability and exposure reliability. Standard offense recomposes with returned team `POSS`; defense requires opponent possessions, which are not separately exposed, so defensive/net window reconstruction is not approved. That does not invalidate directly returned full-season `NET_RATING`. Estimated `E_` variants are complete and internally coherent but their exact formula is unresolved and none is selected. This target-availability relationship is not evidence of predictive validity. Base `PLUS_MINUS` is cumulative team point differential; it is neither net rating nor on/off and is not substituted for the rate target.
+
+The central research question is whether a supervised projection can estimate expected shared-court team performance for a selected pair, given prior-period player capability and standardized context.
+
+## Additive vs interaction component
+
+The model contract distinguishes between:
+
+- additive component: expected shared-court performance implied by prior independent player capability and standardized context
+- interaction component: projected departure from that additive expectation once both players are present together
+
+The interaction term is not presumed valid in Phase 0. It is a future modeling concept that will only be treated as validated if it improves held-out prediction over a documented baseline.
+
+## Intended interpretation
+
+The intended final interpretation is expected team production and efficiency with the selected pair sharing the floor, assuming approximately league-average remaining teammates and opponents.
+
+This is a team-efficiency projection, not a claim that a particular lineup is the entire game-state model.
+
+## Prediction timing
+
+Prediction timing is strictly pre-target-season or pre-cutoff information only.
+
+The target-season pair performance is predicted using information available before the target season or the prediction cutoff. This excludes same-season player statistics from being treated as prior features.
+
+## Reliability and sample-size fields
+
+Minutes and possessions are treated as reliability and sample-size information, not as player-quality features. Base `MIN` is the shared-minute exposure field because it preserves fractional precision; Advanced `POSS` is possession exposure. Advanced `MIN` is retained as returned but is not assumed interchangeable with Base `MIN` at sparse exposure.
+
+Rows with missing `POSS` or `POSS <= 0` are retained unchanged for audit but are ineligible for a possession-based rate target, even if the endpoint returns numeric offensive, defensive, or net ratings. Phase 1F finds materially lower instability and fewer extreme values at higher exposure, but Charlotte alone is insufficient to select a positive minimum-minute or minimum-possession threshold.
+
+Usage is treated as an offensive-role and possession-ending-burden feature, not as inherent player quality or a reliability metric.
+
+These variables are used for:
+
+- eligibility filtering
+- reliability weighting
+- sample-size analysis
+- uncertainty checks
+
+They are not treated as intrinsic quality scores.
+
+## Initial exclusions and deferred questions
+
+Phase 0 should initially exclude or explicitly flag:
+
+- rookies, unless justified by a special exception
+- same-season target features used as prior features
+- unverified possession estimates
+- pair rows without eligible possession exposure (`POSS` missing or `POSS <= 0`) from possession-based rate-target training, while retaining the rows and endpoint values for audit
+- malformed or duplicate pair identifiers
+- rows without stable ID resolution
+
+Open questions that remain provisional include:
+
+- whether usage should be included as a feature in the eventual model
+- how prior-season player histories should be aggregated across trades and team changes
+- how to handle incomplete or sparse shared-court samples
+- how to treat pair rows with limited minutes or possessions
+- whether pair-level team context should be standardized at team or league level
+
+## Historical split for future work
+
+The amended intended historical split is:
+
+- training targets: 2014–15 through 2023–24
+- validation target: 2024–25
+- untouched final-test target: 2025–26
+- each target uses prior-player inputs from its immediately preceding season; the earliest intended target therefore requires 2013–14 inputs
+
+Validation must be time-ordered or rolling-origin, with 2025-26 preserved as the untouched final test season. A random pair-row split is explicitly rejected because overlapping players and pairs violate row independence and could cross split boundaries.
+
+This document does not claim that the final model is valid or that interaction effects are predictable. The purpose of Phase 0 is feasibility and data-contract validation only.
+
+Historical pre-Phase-3 status: Phase 1A through Phase 1F and Phase 2A through 2E completed the 46,938-row returned raw window with population caveats; global pair-population exhaustiveness remains unproven. That earlier checkpoint did not select curation policy.
+
+Current Phase 3B status: pair `NET_RATING` is the unmodified target; `POSS >= 150` is the primary floor and `POSS >= 100` is the sensitivity floor; equal row weight is primary. The most-recent strict-prior player profile is selected within a three-year lookback, missing-history rows remain, prior shared-pair history is excluded, and imputation is deferred to training folds before symmetric transforms. Verified residual-v1 shot profiles are required for the primary candidate. Reproducible curated artifacts are materialized under the ignored root `curated/` directory. Modeling, feature selection based on target performance, and predictive evaluation have not started.
+
+## Prior-player join audit (Phase 0F)
+
+One live 2023-24 `LeagueDashPlayerStats` response (Base measure, Per100Possessions) was acquired and joined to the 183 Warriors 2024-25 canonical pairs by stable `PLAYER_ID`, independently for each player in the pair.
+
+- Stable-ID audit: 572 raw rows, 572 unique `PLAYER_ID` values, 0 duplicate IDs, 0 missing/malformed IDs. The endpoint appears to return one aggregate row per player, including 78 players with `TEAM_COUNT > 1` (traded during the season). One traded player (Buddy Hield) shows `GP=84`; this is a valid combined-team total (a mid-season trade can push combined games above 82 because the two teams may have played a different number of games at the trade date), not an anomaly, and it is not capped or corrected.
+- Player-level coverage: 19 of 23 unique Warriors pair-population player IDs (82.6%) have a 2023-24 record. 4 do not: they are described only as having "no 2023-24 LeagueDashPlayerStats record," not labeled rookies or errors without further evidence.
+- Pair-level coverage: 143 of 183 pairs (78.1%) have both players matched; 29 have only player 1, 8 have only player 2, 3 have neither.
+- Exposure-weighted diagnostic coverage under the Phase 1A convention: complete-prior pairs sum to 36,469.44 of 39,460.00 Base shared minutes (92.4%) and 77,640 of 84,005 Advanced possessions (92.4%); incomplete-prior pairs hold the remaining 2,990.56 Base minutes and 6,365 Advanced possessions. These are overlapping diagnostic sums recalculated from the cached pair tables, not unique team totals, and are not used as model features.
+- Observed `MIN` semantics under `Per100Possessions`: it is not season-total minutes; it is minutes reported on the same per-100-possession normalization as other rate fields, and happened to resemble typical per-game averages for this season's pace. It must not be used as the prior player's season-total eligibility or reliability measure. A later ingestion phase will need a validated `Totals`-per-mode response, or another trustworthy season-total-minutes field. Phase 0F establishes join coverage, not the final prior-player reliability contract.
+
+Phase 3B approved modeling-input policy: for each player, select the most recent available profile strictly before the target season, with a maximum three-season lookback. Retain `complete`, `one_missing`, and `both_missing` observations; leave missing feature values unfilled during curation; and fit any future imputation only inside each chronological training fold. The strict complete-history subset is retained for later sensitivity analysis. This settles the availability and fold-safety boundary, not an imputation algorithm.
+
+## Phase 3C baseline-validation contract
+
+Phase 3C is predictive research, not a production-model selection or causal analysis. It uses only targets from 2014-15 through 2023-24 in six expanding outer folds. Each fold learns slot medians from unique observed `(player_id, selected_profile_season)` training profiles, applies one per-feature median identically to both player slots, then builds the 52 approved symmetric features. After slot-level imputation and symmetric feature construction, each applicable training partition learns an outer-training symmetric-feature median; validation values never influence it. It handles remaining undefined symmetric values, including shot-L1 values caused by missing or nonpositive overall FGA, and supplies the same finite-input policy to both Ridge and HGB for a consistent comparison. Scaling, Ridge alpha selection, and every other learned component are training-only. The 2024-25 and 2025-26 outcomes remain prohibited.
+
+This audit does not establish multi-team coverage, does not select a final feature set, and does not train or validate a model.
+
+## Historical Phase 1 missing-history baseline
+
+This baseline policy was applied in the Phase 1A multi-team pilot (see `PHASE1A_PILOT_REPORT.md`). It is historical context superseded by the approved Phase 3B policy above:
+
+1. Preserve all pair observations in raw and curated datasets; no pair rows are dropped from storage.
+2. Add a categorical prior-history status per pair: `complete`, `one_missing`, or `both_missing`.
+3. Use `complete`-status pairs for the primary baseline model.
+4. Do not zero-impute missing prior NBA statistics.
+5. Retain `one_missing`/`both_missing` pairs for coverage analysis and later evaluation of one universal no-history fallback.
+6. The no-history fallback model is not yet defined or implemented.
+
+Phase 1A confirmed this policy's mechanics work across four teams. The same statuses and complete-history primary baseline apply to every team; no roster-specific policy is introduced. The `complete` share varies from 57.2% to 81.6% across the pilot teams, but the bounded sample does not establish roster type as the cause or a league-wide relationship. All rows remain available for later evaluation of a universal fallback (see `PHASE1A_PILOT_REPORT.md`).
+
+## Phase 0 requirement
+
+Phase 0 does not validate the model or the predictability of interaction effects.
+
+It only determines whether the research pipeline is feasible enough to scale into a multi-season sample with acceptable data quality, reasonable coverage, and a clean target/feature contract.
