@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hanson-preview-research"
+version = "0.1.0"
+description = "Local, cache-first NBA preview research tools"
+requires-python = ">=3.11"
+dependencies = [
+  "pandas>=2.2,<4",
+  "requests>=2.31,<3",
+  "nba_api==1.10.1",
+]
+
+[project.optional-dependencies]
+notebook = ["jupyterlab>=4.2,<5"]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+preview-research = "preview_research.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+

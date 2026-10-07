@@ -1,0 +1,21 @@
+# Local environments and notebook state
+.venv/
+.env
+.env.*
+!.env.example
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Source downloads/imports, processed data, status ledgers, and exports
+data/raw/**
+data/processed/**
+data/status.json
+exports/**
+
+# Retain the empty standalone-ready directory layout
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!exports/.gitkeep
